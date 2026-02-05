@@ -4,6 +4,8 @@ import type { NextRequest } from "next/server";
 const ADMIN_HOST = (process.env.NEXT_PUBLIC_ADMIN_HOST ?? "admin.roofix.com.au").toLowerCase();
 const NOINDEX_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
+const MAIN_SITE_HOST = "roofix.com.au";
+
 function getHostname(request: NextRequest): string {
   const raw =
     request.headers.get("x-forwarded-host") ??
@@ -13,12 +15,27 @@ function getHostname(request: NextRequest): string {
   return first.split(":")[0].trim().toLowerCase();
 }
 
+/** Redirect www to non-www so RSC/client fetches are same-origin (avoids CORS). */
+function redirectToCanonicalHost(request: NextRequest): NextResponse | null {
+  const hostname = getHostname(request);
+  if (hostname === "www." + MAIN_SITE_HOST) {
+    const url = request.nextUrl.clone();
+    url.host = MAIN_SITE_HOST;
+    url.protocol = request.nextUrl.protocol;
+    return NextResponse.redirect(url, 308);
+  }
+  return null;
+}
+
 function withNoindex(res: NextResponse): NextResponse {
   Object.entries(NOINDEX_HEADERS).forEach(([k, v]) => res.headers.set(k, v));
   return res;
 }
 
 export function middleware(request: NextRequest) {
+  const canonicalRedirect = redirectToCanonicalHost(request);
+  if (canonicalRedirect) return canonicalRedirect;
+
   const hostname = getHostname(request);
   const pathname = request.nextUrl.pathname;
 
@@ -77,10 +94,13 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // Explicit paths so middleware runs for www redirect + control-centre rewrites (path-to-regexp doesn't allow lookaheads)
   matcher: [
+    "/",
+    "/about",
+    "/contact",
     "/control-centre",
     "/control-centre/:path*",
-    "/",
     "/login",
     "/projects",
     "/projects/:path*",

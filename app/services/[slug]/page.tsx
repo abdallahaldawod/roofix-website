@@ -28,19 +28,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const { slug } = await params;
     const service = await getServiceBySlug(slug);
     if (!service) return { title: "Roofix - Roofing & Gutters" };
+    const title = typeof service.title === "string" ? service.title : "Service";
+    const description = typeof service.description === "string" ? service.description : "";
     const url = `${BASE_URL}/services/${slug}`;
     return {
       title: "Roofix - Roofing & Gutters",
-      description: service.description,
-      keywords: [service.title, "Sydney", "Roofix", "roofing", "gutters"],
+      description: description || undefined,
+      keywords: [title, "Sydney", "Roofix", "roofing", "gutters"],
       openGraph: {
-        title: `${service.title} | Roofix - Roofing & Gutters Sydney`,
-        description: service.description,
+        title: `${title} | Roofix - Roofing & Gutters Sydney`,
+        description: description || undefined,
         url,
         type: "website",
         locale: "en_AU",
       },
-      twitter: { card: "summary_large_image", title: service.title, description: service.description },
+      twitter: { card: "summary_large_image", title, description: description || undefined },
       alternates: { canonical: url },
     };
   } catch {
@@ -48,10 +50,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
+/** Ensure content is always string[] (Firestore can return string or malformed data). */
+function normalizeContent(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === "string");
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [];
+}
+
 export default async function ServicePage({ params }: Props) {
   const { slug } = await params;
   const service = await getServiceBySlug(slug);
   if (!service) notFound();
+
+  const title = typeof service.title === "string" ? service.title : "Service";
+  const description = typeof service.description === "string" ? service.description : "";
+  const content = normalizeContent(service.content);
 
   let otherServices: Awaited<ReturnType<typeof getServices>> = [];
   try {
@@ -66,16 +79,16 @@ export default async function ServicePage({ params }: Props) {
       <section className="bg-neutral-900 px-4 py-16 text-white sm:px-6 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            {service.title}
+            {title}
           </h1>
-          <p className="mt-4 text-neutral-300">{service.description}</p>
+          <p className="mt-4 text-neutral-300">{description}</p>
         </div>
       </section>
 
       <section className="bg-white px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-3xl">
           <div className="prose prose-neutral max-w-none">
-            {(service.content ?? []).map((paragraph, i) => (
+            {content.map((paragraph, i) => (
               <p key={i} className="mt-4 text-left text-neutral-600 first:mt-0">
                 {paragraph}
               </p>
@@ -96,8 +109,8 @@ export default async function ServicePage({ params }: Props) {
             {otherServices.map((s) => (
               <ServiceCard
                 key={s.slug}
-                title={s.title}
-                description={s.description}
+                title={typeof s.title === "string" ? s.title : "Service"}
+                description={typeof s.description === "string" ? s.description : ""}
                 href={`/services/${s.slug}`}
                 slug={s.slug}
                 icon={s.icon}
