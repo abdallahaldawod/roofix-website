@@ -67,9 +67,17 @@ function getAdminApp() {
   });
 }
 
-export function getAdminFirestore() {
-  const app = getAdminApp();
-  return getFirestore(app);
+/** Returns null if Firebase Admin is misconfigured so the data layer can return [] instead of throwing (avoids 500 in production). */
+export function getAdminFirestore(): ReturnType<typeof getFirestore> | null {
+  try {
+    const app = getAdminApp();
+    return getFirestore(app);
+  } catch {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[Firebase Admin] getAdminFirestore failed (missing or invalid credentials). Public pages will show empty data.");
+    }
+    return null;
+  }
 }
 
 export function isFirebaseAdminConfigured(): boolean {

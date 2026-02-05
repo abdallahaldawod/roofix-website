@@ -26,6 +26,7 @@ async function getCollectionUncached<T>(collectionId: string): Promise<T[]> {
   if (!isFirebaseAdminConfigured()) return [];
   try {
     const db = getAdminFirestore();
+    if (!db) return [];
     const snapshot = await db.collection(collectionId).get();
     const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T & { id: string }));
     // Only include items that have required fields (e.g. services need slug + title)

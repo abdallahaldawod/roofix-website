@@ -54,18 +54,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function ProjectDetailPage({ params }: Props) {
-  let project: Awaited<ReturnType<typeof getProjectById>> = null;
   try {
-    const { id } = await params;
-    project = await getProjectById(id);
+    let project: Awaited<ReturnType<typeof getProjectById>> = null;
+    try {
+      const { id } = await params;
+      project = await getProjectById(id);
+      if (!project) notFound();
+    } catch {
+      notFound();
+    }
     if (!project) notFound();
-  } catch {
-    notFound();
-  }
-  if (!project) notFound();
 
-  const categoryLabel = CATEGORY_LABELS[project.category] ?? project.category ?? "Project";
-  const images = Array.isArray(project.imageUrls) ? project.imageUrls : [];
+    const categoryLabel =
+    CATEGORY_LABELS[typeof project.category === "string" ? project.category : ""] ??
+    (typeof project.category === "string" ? project.category : undefined) ??
+    "Project";
+  const images = Array.isArray(project.imageUrls) ? project.imageUrls.filter((u): u is string => typeof u === "string") : [];
+  const tags = Array.isArray(project.tags) ? project.tags.filter((t): t is string => typeof t === "string") : [];
 
   return (
     <>
@@ -119,11 +124,11 @@ export default async function ProjectDetailPage({ params }: Props) {
               <dt className="text-sm font-medium uppercase tracking-wider text-neutral-500">Description</dt>
               <dd className="mt-1 text-neutral-600">{project.description?.trim() || "—"}</dd>
             </div>
-            {(project.tags ?? []).length > 0 ? (
+            {tags.length > 0 ? (
               <div>
                 <dt className="text-sm font-medium uppercase tracking-wider text-neutral-500">Tags</dt>
                 <dd className="mt-2 flex flex-wrap gap-2">
-                  {(project.tags ?? []).map((tag) => (
+                  {tags.map((tag) => (
                     <span
                       key={tag}
                       className="rounded-full bg-neutral-100 px-3 py-1 text-sm font-medium text-neutral-700"
@@ -169,4 +174,8 @@ export default async function ProjectDetailPage({ params }: Props) {
       </section>
     </>
   );
+  } catch (e) {
+    if (process.env.NODE_ENV === "development") console.error("[ProjectDetailPage]", e);
+    notFound();
+  }
 }

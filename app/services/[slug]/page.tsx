@@ -58,23 +58,24 @@ function normalizeContent(raw: unknown): string[] {
 }
 
 export default async function ServicePage({ params }: Props) {
-  const { slug } = await params;
-  const service = await getServiceBySlug(slug);
-  if (!service) notFound();
-
-  const title = typeof service.title === "string" ? service.title : "Service";
-  const description = typeof service.description === "string" ? service.description : "";
-  const content = normalizeContent(service.content);
-
-  let otherServices: Awaited<ReturnType<typeof getServices>> = [];
   try {
-    const allServices = await getServices();
-    otherServices = allServices.filter((s) => s.slug !== slug);
-  } catch {
-    otherServices = [];
-  }
+    const { slug } = await params;
+    const service = await getServiceBySlug(slug);
+    if (!service) notFound();
 
-  return (
+    const title = typeof service.title === "string" ? service.title : "Service";
+    const description = typeof service.description === "string" ? service.description : "";
+    const content = normalizeContent(service.content);
+
+    let otherServices: Awaited<ReturnType<typeof getServices>> = [];
+    try {
+      const allServices = await getServices();
+      otherServices = allServices.filter((s) => s.slug !== slug);
+    } catch {
+      otherServices = [];
+    }
+
+    return (
     <>
       <section className="bg-neutral-900 px-4 py-16 text-white sm:px-6 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
@@ -129,4 +130,8 @@ export default async function ServicePage({ params }: Props) {
       </section>
     </>
   );
+  } catch (e) {
+    if (process.env.NODE_ENV === "development") console.error("[ServicePage]", e);
+    notFound();
+  }
 }
