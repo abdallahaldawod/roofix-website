@@ -97,8 +97,12 @@ export async function getProjectById(id: string): Promise<(Project & { id: strin
 }
 
 export async function getServiceBySlug(slug: string): Promise<Service | null> {
-  const services = await getServices();
-  return services.find((s) => s.slug === slug) ?? null;
+  try {
+    const services = await getServices();
+    return services.find((s) => s.slug === slug) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getAllServiceSlugs(): Promise<string[]> {

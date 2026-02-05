@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import Link from "next/link";
 import { useControlCentreBase } from "../use-base-path";
@@ -24,6 +24,7 @@ function LoginForm() {
     setLoading(true);
     try {
       const auth = getFirebaseAuth();
+      await setPersistence(auth, browserSessionPersistence);
       await signInWithEmailAndPassword(auth, email, password);
       router.replace(base || "/");
       return;

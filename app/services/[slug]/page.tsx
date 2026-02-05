@@ -14,38 +14,48 @@ type Props = {
 export const revalidate = 300;
 
 export async function generateStaticParams() {
-  const slugs = await getServices().then((s) => s.map((x) => x.slug));
-  return slugs.length > 0 ? slugs.map((slug) => ({ slug })) : [];
+  try {
+    const services = await getServices();
+    const slugs = services.map((s) => s.slug);
+    return slugs.length > 0 ? slugs.map((slug) => ({ slug })) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params;
-  const service = await getServiceBySlug(slug);
-  if (!service) return { title: "Roofix - Roofing & Gutters" };
-  const url = `${BASE_URL}/services/${slug}`;
-  return {
-    title: "Roofix - Roofing & Gutters",
-    description: service.description,
-    keywords: [service.title, "Sydney", "Roofix", "roofing", "gutters"],
-    openGraph: {
-      title: `${service.title} | Roofix - Roofing & Gutters Sydney`,
+  try {
+    const { slug } = await params;
+    const service = await getServiceBySlug(slug);
+    if (!service) return { title: "Roofix - Roofing & Gutters" };
+    const url = `${BASE_URL}/services/${slug}`;
+    return {
+      title: "Roofix - Roofing & Gutters",
       description: service.description,
-      url,
-      type: "website",
-      locale: "en_AU",
-    },
-    twitter: { card: "summary_large_image", title: service.title, description: service.description },
-    alternates: { canonical: url },
-  };
+      keywords: [service.title, "Sydney", "Roofix", "roofing", "gutters"],
+      openGraph: {
+        title: `${service.title} | Roofix - Roofing & Gutters Sydney`,
+        description: service.description,
+        url,
+        type: "website",
+        locale: "en_AU",
+      },
+      twitter: { card: "summary_large_image", title: service.title, description: service.description },
+      alternates: { canonical: url },
+    };
+  } catch {
+    return { title: "Roofix - Roofing & Gutters" };
+  }
 }
 
 export default async function ServicePage({ params }: Props) {
-  const { slug } = await params;
-  const service = await getServiceBySlug(slug);
-  if (!service) notFound();
+  try {
+    const { slug } = await params;
+    const service = await getServiceBySlug(slug);
+    if (!service) notFound();
 
-  const allServices = await getServices();
-  const otherServices = allServices.filter((s) => s.slug !== slug);
+    const allServices = await getServices();
+    const otherServices = allServices.filter((s) => s.slug !== slug);
 
   return (
     <>
@@ -61,7 +71,7 @@ export default async function ServicePage({ params }: Props) {
       <section className="bg-white px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-3xl">
           <div className="prose prose-neutral max-w-none">
-            {service.content.map((paragraph, i) => (
+            {(service.content ?? []).map((paragraph, i) => (
               <p key={i} className="mt-4 text-left text-neutral-600 first:mt-0">
                 {paragraph}
               </p>
@@ -102,4 +112,7 @@ export default async function ServicePage({ params }: Props) {
       </section>
     </>
   );
+  } catch {
+    notFound();
+  }
 }

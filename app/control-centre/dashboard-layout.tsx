@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -20,6 +21,8 @@ const nav = [
   { path: "/testimonials", label: "Testimonials", icon: MessageSquare },
 ];
 
+const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
+
 export default function DashboardLayout({
   children,
 }: {
@@ -28,16 +31,34 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const base = useControlCentreBase();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function href(path: string) {
     return path === "/" ? (base || "/") : (base + path);
   }
 
-  async function handleSignOut() {
+  const handleSignOut = useCallback(async () => {
     const auth = getFirebaseAuth();
     await signOut(auth);
     router.replace(href("/login"));
-  }
+  }, [base, router]);
+
+  useEffect(() => {
+    const resetTimer = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        handleSignOut();
+      }, INACTIVITY_MS);
+    };
+
+    resetTimer();
+    const events = ["mousedown", "keydown", "scroll", "touchstart", "mousemove"];
+    events.forEach((e) => window.addEventListener(e, resetTimer));
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [handleSignOut]);
 
   const isDashboard = pathname === "/control-centre" || pathname === "/";
 
@@ -72,7 +93,7 @@ export default function DashboardLayout({
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
           >
             <LogOut className="h-5 w-5 shrink-0" />
-            Sign out
+            Log out
           </button>
         </div>
       </aside>
