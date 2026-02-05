@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
 import Link from "next/link";
 import CTAButton from "@/components/CTAButton";
 import ServiceCard from "@/components/ServiceCard";
@@ -12,6 +12,7 @@ type Props = {
 };
 
 export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   try {
@@ -131,6 +132,7 @@ export default async function ServicePage({ params }: Props) {
     </>
   );
   } catch (e) {
+    unstable_rethrow(e);
     if (process.env.NODE_ENV === "development") console.error("[ServicePage]", e);
     notFound();
   }

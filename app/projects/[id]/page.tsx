@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
 import { getProjectById, getProjects } from "@/lib/data";
 
 const BASE_URL = "https://roofix.com.au";
@@ -16,6 +16,7 @@ type Props = {
 };
 
 export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   try {
@@ -175,6 +176,7 @@ export default async function ProjectDetailPage({ params }: Props) {
     </>
   );
   } catch (e) {
+    unstable_rethrow(e);
     if (process.env.NODE_ENV === "development") console.error("[ProjectDetailPage]", e);
     notFound();
   }

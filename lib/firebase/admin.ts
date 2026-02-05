@@ -1,9 +1,13 @@
 /**
  * Firebase Admin SDK – server-side only.
  * Used for public page reads from Firestore (projects, services, testimonials).
- * Requires FIREBASE_PROJECT_ID and FIREBASE_SERVICE_ACCOUNT_KEY (JSON string).
+ * Requires FIREBASE_PROJECT_ID and either:
+ * - FIREBASE_SERVICE_ACCOUNT_KEY (full JSON string), or
+ * - FIREBASE_SERVICE_ACCOUNT_KEY_PATH (path to JSON file; dev only, avoids paste corruption).
  */
 
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { getApps, initializeApp, cert, type ServiceAccount } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -26,27 +30,42 @@ function toServiceAccount(raw: Record<string, unknown>): ServiceAccount {
   };
 }
 
+function getKeyJson(): string {
+  // In development, allow loading from a file path to avoid copy-paste corruption of the private key
+  const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH;
+  if (process.env.NODE_ENV === "development" && keyPath?.trim()) {
+    try {
+      const resolved = resolve(process.cwd(), keyPath.trim());
+      return readFileSync(resolved, "utf8");
+    } catch (e) {
+      console.error("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT_KEY_PATH read failed:", e instanceof Error ? e.message : e);
+    }
+  }
+  const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!keyJson || keyJson.trim() === "") {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_KEY (or FIREBASE_SERVICE_ACCOUNT_KEY_PATH in dev) is required. See .env.local.example."
+    );
+  }
+  return keyJson;
+}
+
 function getFirebaseAdminConfig(): ServiceAccount | { projectId: string } {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   if (!projectId) {
     throw new Error("FIREBASE_PROJECT_ID is required for Firebase Admin.");
   }
 
-  const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson || keyJson.trim() === "") {
-    throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT_KEY is required for Firestore. Add it to .env.local (full service account JSON as one line), then restart the dev server."
-    );
-  }
+  const keyJson = getKeyJson();
   try {
     const raw = JSON.parse(keyJson) as Record<string, unknown>;
     return toServiceAccount(raw);
   } catch (e) {
     if (process.env.NODE_ENV === "development") {
-      console.error("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT_KEY parse failed:", e);
+      console.error("[Firebase Admin] Service account JSON parse failed:", e);
     }
     throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT_KEY is set but invalid. Use the full service account JSON as one line in .env.local."
+      "FIREBASE_SERVICE_ACCOUNT_KEY is set but invalid. Use the full service account JSON, or in dev set FIREBASE_SERVICE_ACCOUNT_KEY_PATH to the path to the .json file."
     );
   }
 }
@@ -72,17 +91,18 @@ export function getAdminFirestore(): ReturnType<typeof getFirestore> | null {
   try {
     const app = getAdminApp();
     return getFirestore(app);
-  } catch {
+  } catch (e) {
     if (process.env.NODE_ENV === "development") {
-      console.warn("[Firebase Admin] getAdminFirestore failed (missing or invalid credentials). Public pages will show empty data.");
+      console.warn("[Firebase Admin] getAdminFirestore failed. Public pages will show empty data.", e instanceof Error ? e.message : e);
     }
     return null;
   }
 }
 
 export function isFirebaseAdminConfigured(): boolean {
-  return Boolean(
-    process.env.FIREBASE_PROJECT_ID &&
-    process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-  );
+  const hasProjectId = Boolean(process.env.FIREBASE_PROJECT_ID);
+  const hasKey =
+    Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()) ||
+    (process.env.NODE_ENV === "development" && Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()));
+  return hasProjectId && hasKey;
 }
