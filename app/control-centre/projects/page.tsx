@@ -34,9 +34,12 @@ const CATEGORIES: { value: ProjectCategory; label: string }[] = [
 ];
 
 function toProject(docId: string, data: Record<string, unknown>): Project & { id: string } {
+  const slugFromDb = data.slug;
+  const slug =
+    typeof slugFromDb === "string" && slugFromDb.length > 0 ? slugFromDb : docId;
   return {
     id: docId,
-    slug: typeof data.slug === "string" ? data.slug : docId,
+    slug,
     title: (data.title as string) ?? "",
     suburb: (data.suburb as string) ?? "",
     description: (data.description as string) ?? "",
@@ -202,12 +205,15 @@ export default function ControlCentreProjectsPage() {
           setSaving(false);
           return;
         }
-        await setDoc(doc(db, PROJECTS_COLLECTION, slug), { ...basePayload, slug });
+        await setDoc(doc(db, PROJECTS_COLLECTION, slug), {
+          slug,
+          ...basePayload,
+        });
         newId = slug;
       } else {
         const ref = await addDoc(collection(db, PROJECTS_COLLECTION), basePayload);
         newId = ref.id;
-        await updateDoc(doc(db, PROJECTS_COLLECTION, newId), { slug: newId });
+        await setDoc(doc(db, PROJECTS_COLLECTION, newId), { slug: newId }, { merge: true });
       }
       setCreating(false);
       await load();
@@ -251,8 +257,8 @@ export default function ControlCentreProjectsPage() {
         const oldSnap = await getDoc(oldRef);
         const order = (oldSnap.data()?.order as number) ?? 9999;
         await setDoc(doc(db, PROJECTS_COLLECTION, newSlug), {
-          ...basePayload,
           slug: newSlug,
+          ...basePayload,
           order,
           createdAt: oldSnap.data()?.createdAt,
         });
@@ -260,7 +266,10 @@ export default function ControlCentreProjectsPage() {
         await refreshPublicSiteCache(newSlug);
         await refreshPublicSiteCache(editing);
       } else {
-        await updateDoc(doc(db, PROJECTS_COLLECTION, editing), { ...basePayload, slug: editing });
+        await updateDoc(doc(db, PROJECTS_COLLECTION, editing), {
+          slug: editing,
+          ...basePayload,
+        });
         await refreshPublicSiteCache(editing);
       }
       setEditing(null);
@@ -318,7 +327,12 @@ export default function ControlCentreProjectsPage() {
               <div className="min-w-0">
                 <p className="font-medium text-neutral-900">{p.title}</p>
                 <p className="text-sm text-neutral-500">{p.suburb} · {p.category}</p>
-                <p className="text-xs text-neutral-400 font-mono">/projects/{p.id}</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  <span className="font-medium text-neutral-600">URL slug:</span>{" "}
+                  <span className="font-mono">{(p.slug ?? p.id) || "—"}</span>
+                  {" · "}
+                  <span className="font-mono">/projects/{(p.slug ?? p.id) || p.id}</span>
+                </p>
               </div>
               <div className="flex shrink-0 gap-2">
                 <button
