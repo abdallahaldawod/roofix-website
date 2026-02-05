@@ -49,13 +49,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function ServicePage({ params }: Props) {
-  try {
-    const { slug } = await params;
-    const service = await getServiceBySlug(slug);
-    if (!service) notFound();
+  const { slug } = await params;
+  const service = await getServiceBySlug(slug);
+  if (!service) notFound();
 
+  let otherServices: Awaited<ReturnType<typeof getServices>> = [];
+  try {
     const allServices = await getServices();
-    const otherServices = allServices.filter((s) => s.slug !== slug);
+    otherServices = allServices.filter((s) => s.slug !== slug);
+  } catch {
+    otherServices = [];
+  }
 
   return (
     <>
@@ -112,7 +116,4 @@ export default async function ServicePage({ params }: Props) {
       </section>
     </>
   );
-  } catch {
-    notFound();
-  }
 }

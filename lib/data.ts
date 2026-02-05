@@ -67,16 +67,24 @@ async function getCollectionImpl<T>(collectionId: string): Promise<T[]> {
 const getCollection = cache(getCollectionImpl);
 
 export const getProjects = cache(async (): Promise<Project[]> => {
-  const projects = await getCollection<Project>(PROJECTS_COLLECTION);
-  if (projects.length > 0) return projects;
-  return [];
+  try {
+    const projects = await getCollection<Project>(PROJECTS_COLLECTION);
+    return Array.isArray(projects) ? projects : [];
+  } catch {
+    return [];
+  }
 });
 
 /** Public pages use getServices() for active only; control-centre can pass { includeInactive: true }. */
 export const getServices = cache(async (opts?: { includeInactive?: boolean }): Promise<Service[]> => {
-  const list = await getCollection<Service>(SERVICES_COLLECTION);
-  if (opts?.includeInactive) return list;
-  return list.filter((s) => (s as { active?: boolean }).active !== false);
+  try {
+    const list = await getCollection<Service>(SERVICES_COLLECTION);
+    const arr = Array.isArray(list) ? list : [];
+    if (opts?.includeInactive) return arr;
+    return arr.filter((s) => (s as { active?: boolean }).active !== false);
+  } catch {
+    return [];
+  }
 });
 
 export const getTestimonials = cache(async (): Promise<Testimonial[]> => {
@@ -99,7 +107,9 @@ export async function getProjectById(id: string): Promise<(Project & { id: strin
 export async function getServiceBySlug(slug: string): Promise<Service | null> {
   try {
     const services = await getServices();
-    return services.find((s) => s.slug === slug) ?? null;
+    const normal = (s: string) => s.toLowerCase().trim();
+    const needle = normal(slug);
+    return services.find((s) => normal(s.slug) === needle) ?? null;
   } catch {
     return null;
   }

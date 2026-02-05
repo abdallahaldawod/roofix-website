@@ -54,13 +54,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function ProjectDetailPage({ params }: Props) {
+  let project: Awaited<ReturnType<typeof getProjectById>> = null;
   try {
     const { id } = await params;
-    const project = await getProjectById(id);
+    project = await getProjectById(id);
     if (!project) notFound();
+  } catch {
+    notFound();
+  }
+  if (!project) notFound();
 
-  const categoryLabel = CATEGORY_LABELS[project.category] ?? project.category;
-  const images = project.imageUrls ?? [];
+  const categoryLabel = CATEGORY_LABELS[project.category] ?? project.category ?? "Project";
+  const images = Array.isArray(project.imageUrls) ? project.imageUrls : [];
 
   return (
     <>
@@ -164,7 +169,4 @@ export default async function ProjectDetailPage({ params }: Props) {
       </section>
     </>
   );
-  } catch {
-    notFound();
-  }
 }
