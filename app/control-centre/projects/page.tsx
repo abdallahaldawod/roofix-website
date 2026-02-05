@@ -7,7 +7,9 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
+  setDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase/client";
@@ -17,6 +19,14 @@ import type { Project, ProjectCategory } from "@/lib/firestore-types";
 import { Plus, Pencil, Trash2, Upload, X } from "lucide-react";
 
 const PROJECTS_COLLECTION = "projects";
+const SLUG_REGEX = /^[a-z0-9-]+$/;
+function normalizeSlug(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
 const CATEGORIES: { value: ProjectCategory; label: string }[] = [
   { value: "roofing", label: "Roofing" },
   { value: "gutters", label: "Gutters" },
@@ -41,13 +51,14 @@ export default function ControlCentreProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<Partial<Project>>({
+  const [form, setForm] = useState<Partial<Project> & { slug?: string }>({
     title: "",
     suburb: "",
     description: "",
     tags: [],
     category: "roofing",
     imageUrls: [],
+    slug: "",
   });
   const [tagInput, setTagInput] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -83,6 +94,7 @@ export default function ControlCentreProjectsPage() {
       tags: [],
       category: "roofing",
       imageUrls: [],
+      slug: "",
     });
     setTagInput("");
   }
@@ -97,6 +109,7 @@ export default function ControlCentreProjectsPage() {
       tags: p.tags ?? [],
       category: p.category,
       imageUrls: p.imageUrls ?? [],
+      slug: p.id,
     });
     setTagInput("");
   }
@@ -161,10 +174,15 @@ export default function ControlCentreProjectsPage() {
 
   async function saveCreate() {
     if (!form.title?.trim()) return;
+    const slug = normalizeSlug(form.slug ?? "").trim();
+    if (slug && !SLUG_REGEX.test(slug)) {
+      alert("Slug can only contain lowercase letters, numbers, and hyphens.");
+      return;
+    }
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      const ref = await addDoc(collection(db, PROJECTS_COLLECTION), {
+      const payload = {
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
@@ -174,10 +192,24 @@ export default function ControlCentreProjectsPage() {
         order: projects.length,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      let newId: string;
+      if (slug) {
+        const existing = await getDoc(doc(db, PROJECTS_COLLECTION, slug));
+        if (existing.exists()) {
+          alert("A project with this slug already exists. Choose another.");
+          setSaving(false);
+          return;
+        }
+        await setDoc(doc(db, PROJECTS_COLLECTION, slug), payload);
+        newId = slug;
+      } else {
+        const ref = await addDoc(collection(db, PROJECTS_COLLECTION), payload);
+        newId = ref.id;
+      }
       setCreating(false);
       await load();
-      await refreshPublicSiteCache(ref.id);
+      await refreshPublicSiteCache(newId);
       alert("Project saved to the database. It will appear on the website.");
     } catch (e) {
       console.error(e);
@@ -189,10 +221,15 @@ export default function ControlCentreProjectsPage() {
 
   async function saveEdit() {
     if (!editing || !form.title?.trim()) return;
+    const newSlug = normalizeSlug(form.slug ?? "").trim();
+    if (!newSlug || !SLUG_REGEX.test(newSlug)) {
+      alert("Slug is required and can only contain lowercase letters, numbers, and hyphens.");
+      return;
+    }
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      await updateDoc(doc(db, PROJECTS_COLLECTION, editing), {
+      const payload = {
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
@@ -200,10 +237,27 @@ export default function ControlCentreProjectsPage() {
         category: form.category ?? "roofing",
         imageUrls: form.imageUrls ?? [],
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (newSlug !== editing) {
+        const existing = await getDoc(doc(db, PROJECTS_COLLECTION, newSlug));
+        if (existing.exists()) {
+          alert("A project with this slug already exists. Choose another.");
+          setSaving(false);
+          return;
+        }
+        const oldRef = doc(db, PROJECTS_COLLECTION, editing);
+        const oldSnap = await getDoc(oldRef);
+        const order = (oldSnap.data()?.order as number) ?? 9999;
+        await setDoc(doc(db, PROJECTS_COLLECTION, newSlug), { ...payload, order, createdAt: oldSnap.data()?.createdAt });
+        await deleteDoc(oldRef);
+        await refreshPublicSiteCache(newSlug);
+        await refreshPublicSiteCache(editing);
+      } else {
+        await updateDoc(doc(db, PROJECTS_COLLECTION, editing), payload);
+        await refreshPublicSiteCache(editing);
+      }
       setEditing(null);
       await load();
-      await refreshPublicSiteCache(editing);
       alert("Project saved to the database. Changes will appear on the website.");
     } catch (e) {
       console.error(e);
@@ -257,6 +311,7 @@ export default function ControlCentreProjectsPage() {
               <div className="min-w-0">
                 <p className="font-medium text-neutral-900">{p.title}</p>
                 <p className="text-sm text-neutral-500">{p.suburb} · {p.category}</p>
+                <p className="text-xs text-neutral-400 font-mono">/projects/{p.id}</p>
               </div>
               <div className="flex shrink-0 gap-2">
                 <button
@@ -291,6 +346,23 @@ export default function ControlCentreProjectsPage() {
               {creating ? "New project" : "Edit project"}
             </h2>
             <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-neutral-700">URL slug</label>
+                <input
+                  type="text"
+                  value={form.slug ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
+                  onBlur={(e) => {
+                    const v = normalizeSlug(e.target.value);
+                    if (v !== (form.slug ?? "")) setForm((f) => ({ ...f, slug: v }));
+                  }}
+                  placeholder={creating ? "e.g. full-roof-manly (optional, auto-generated if empty)" : "e.g. website-0"}
+                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 font-mono text-sm text-neutral-900"
+                />
+                <p className="mt-0.5 text-xs text-neutral-500">
+                  Used in URL: /projects/[slug]. Lowercase letters, numbers, hyphens only.
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Title</label>
                 <input

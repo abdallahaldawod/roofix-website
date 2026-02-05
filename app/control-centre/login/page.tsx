@@ -102,10 +102,6 @@ function LoginForm() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-
-        <p className="mt-6 text-center text-xs text-neutral-400">
-          Not linked from the public site. Admin only.
-        </p>
       </div>
       <Link href="/" className="mt-6 text-sm text-neutral-500 hover:text-neutral-700">
         ← Back to site
