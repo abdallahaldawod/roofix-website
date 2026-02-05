@@ -51,3 +51,8 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     secret: NEXT_PUBLIC_FIREBASE_APP_ID
     availability: [BUILD, RUNTIME]
+
+  # Control centre only on admin subdomain (middleware uses this to rewrite / → /control-centre).
+  - variable: NEXT_PUBLIC_ADMIN_HOST
+    value: "admin.roofix.com.au"
+    availability: [BUILD, RUNTIME]

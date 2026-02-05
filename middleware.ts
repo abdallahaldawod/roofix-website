@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const ADMIN_HOST = process.env.NEXT_PUBLIC_ADMIN_HOST ?? "admin.roofix.com.au";
+const ADMIN_HOST = (process.env.NEXT_PUBLIC_ADMIN_HOST ?? "admin.roofix.com.au").toLowerCase();
 
 function getHostname(request: NextRequest): string {
-  const hostHeader =
+  const raw =
     request.headers.get("x-forwarded-host") ??
     request.headers.get("host") ??
     request.nextUrl.hostname;
-  return hostHeader.split(":")[0];
+  const first = raw.split(",")[0].trim();
+  return first.split(":")[0].trim().toLowerCase();
 }
 
 export function middleware(request: NextRequest) {
