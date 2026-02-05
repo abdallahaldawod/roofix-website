@@ -6,6 +6,7 @@ import { useAuth } from "./use-auth";
 import { useControlCentreBase } from "./use-base-path";
 
 const LOGIN_PATH = "/control-centre/login";
+const LOGIN_PATH_CLEAN = "/login"; // admin host clean URL (rewritten to /control-centre/login)
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -16,7 +17,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname();
   const router = useRouter();
   const base = useControlCentreBase();
-  const isLoginPage = pathname === LOGIN_PATH;
+  const isLoginPage = pathname === LOGIN_PATH || pathname === LOGIN_PATH_CLEAN;
 
   const dashboardPath = base || "/";
   const loginPath = base ? `${base}/login` : "/login";
