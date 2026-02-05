@@ -86,10 +86,14 @@ export const getTestimonials = cache(async (): Promise<Testimonial[]> => {
 });
 
 export async function getProjectById(id: string): Promise<(Project & { id: string }) | null> {
-  const projects = await getProjects();
-  const project = projects.find((p) => (p as { id?: string }).id === id);
-  if (!project) return null;
-  return { ...project, id: (project as { id?: string }).id ?? id };
+  try {
+    const projects = await getProjects();
+    const project = projects.find((p) => (p as { id?: string }).id === id);
+    if (!project) return null;
+    return { ...project, id: (project as { id?: string }).id ?? id };
+  } catch {
+    return null;
+  }
 }
 
 export async function getServiceBySlug(slug: string): Promise<Service | null> {

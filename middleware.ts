@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const ADMIN_HOST = (process.env.NEXT_PUBLIC_ADMIN_HOST ?? "admin.roofix.com.au").toLowerCase();
+const NOINDEX_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
 function getHostname(request: NextRequest): string {
   const raw =
@@ -10,6 +11,11 @@ function getHostname(request: NextRequest): string {
     request.nextUrl.hostname;
   const first = raw.split(",")[0].trim();
   return first.split(":")[0].trim().toLowerCase();
+}
+
+function withNoindex(res: NextResponse): NextResponse {
+  Object.entries(NOINDEX_HEADERS).forEach(([k, v]) => res.headers.set(k, v));
+  return res;
 }
 
 export function middleware(request: NextRequest) {
@@ -22,13 +28,13 @@ export function middleware(request: NextRequest) {
     hostname === "localhost" || hostname === "127.0.0.1";
   const allowedControlCentre = isAdminHost || isLocalhost;
 
-  const controlCentreHeaders = () => {
+  const controlCentreRequestHeaders = () => {
     const h = new Headers(request.headers);
     h.set("x-is-control-centre", "1");
     return h;
   };
 
-  // /control-centre or /control-centre/** on non-allowed host → 404 (hidden, no redirect)
+  // Main site (not admin, not localhost): /control-centre or /control-centre/* → real 404 (no redirect)
   if (
     pathname === "/control-centre" ||
     pathname.startsWith("/control-centre/")
@@ -37,17 +43,19 @@ export function middleware(request: NextRequest) {
       return NextResponse.rewrite(new URL("/not-found", request.url));
     }
     const url = new URL(pathname + request.nextUrl.search, request.url);
-    return NextResponse.rewrite(url, {
-      request: { headers: controlCentreHeaders() },
+    const res = NextResponse.rewrite(url, {
+      request: { headers: controlCentreRequestHeaders() },
     });
+    return withNoindex(res);
   }
 
-  // On admin host only: clean URL rewrites (/, /login, /projects, etc. → /control-centre/...)
+  // Admin host only: clean URL rewrites (/, /login, /projects, etc. → /control-centre/...)
   if (isAdminHost) {
     if (pathname === "/" || pathname === "") {
-      return NextResponse.rewrite(new URL("/control-centre", request.url), {
-        request: { headers: controlCentreHeaders() },
+      const res = NextResponse.rewrite(new URL("/control-centre", request.url), {
+        request: { headers: controlCentreRequestHeaders() },
       });
+      return withNoindex(res);
     }
     if (
       pathname === "/login" ||
@@ -58,9 +66,10 @@ export function middleware(request: NextRequest) {
       pathname.startsWith("/services/")
     ) {
       const controlPath = "/control-centre" + pathname;
-      return NextResponse.rewrite(new URL(controlPath, request.url), {
-        request: { headers: controlCentreHeaders() },
+      const res = NextResponse.rewrite(new URL(controlPath, request.url), {
+        request: { headers: controlCentreRequestHeaders() },
       });
+      return withNoindex(res);
     }
   }
 

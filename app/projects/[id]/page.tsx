@@ -18,19 +18,24 @@ type Props = {
 export const revalidate = 300;
 
 export async function generateStaticParams() {
-  const projects = await getProjects();
-  return projects
-    .map((p) => (p as { id?: string }).id)
-    .filter(Boolean)
-    .map((id) => ({ id: id! }));
+  try {
+    const projects = await getProjects();
+    return projects
+      .map((p) => (p as { id?: string }).id)
+      .filter(Boolean)
+      .map((id) => ({ id: id! }));
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
-  const project = await getProjectById(id);
-  if (!project) return { title: "Project | Roofix - Roofing & Gutters" };
-  const url = `${BASE_URL}/projects/${id}`;
-  return {
+  try {
+    const { id } = await params;
+    const project = await getProjectById(id);
+    if (!project) return { title: "Project | Roofix - Roofing & Gutters" };
+    const url = `${BASE_URL}/projects/${id}`;
+    return {
     title: `${project.title} | Roofix - Roofing & Gutters`,
     description: project.description || `Roofing and gutter project: ${project.title}. ${project.suburb ? project.suburb + "." : ""}`,
     openGraph: {
@@ -43,12 +48,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     twitter: { card: "summary_large_image", title: project.title, description: project.description },
     alternates: { canonical: url },
   };
+  } catch {
+    return { title: "Project | Roofix - Roofing & Gutters" };
+  }
 }
 
 export default async function ProjectDetailPage({ params }: Props) {
-  const { id } = await params;
-  const project = await getProjectById(id);
-  if (!project) notFound();
+  try {
+    const { id } = await params;
+    const project = await getProjectById(id);
+    if (!project) notFound();
 
   const categoryLabel = CATEGORY_LABELS[project.category] ?? project.category;
   const images = project.imageUrls ?? [];
@@ -155,4 +164,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       </section>
     </>
   );
+  } catch {
+    notFound();
+  }
 }

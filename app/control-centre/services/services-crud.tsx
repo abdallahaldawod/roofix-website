@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   collection,
   addDoc,
@@ -268,32 +269,48 @@ export default function ServicesCrud() {
         </div>
       )}
 
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
-            <h3 id="delete-dialog-title" className="text-lg font-semibold text-neutral-900">Delete service?</h3>
-            <p className="mt-2 text-neutral-600">
-              Are you sure you want to delete <strong>{deleteConfirm.title}</strong>? This cannot be undone.
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setDeleteConfirm(null)}
-                className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => remove(deleteConfirm.id)}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-              >
-                Delete
-              </button>
+      {deleteConfirm &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-desc"
+          >
+            <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-lg">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600" aria-hidden>
+                  <Trash2 className="h-5 w-5" />
+                </span>
+                <h3 id="delete-dialog-title" className="text-lg font-semibold text-neutral-900">
+                  Delete service?
+                </h3>
+              </div>
+              <p id="delete-dialog-desc" className="mt-3 text-sm text-neutral-600">
+                Are you sure you want to delete <strong className="font-medium text-neutral-900">{deleteConfirm.title}</strong>? This cannot be undone.
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(null)}
+                  className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(deleteConfirm.id)}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

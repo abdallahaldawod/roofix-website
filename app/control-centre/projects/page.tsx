@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import {
   collection,
   addDoc,
@@ -9,12 +8,10 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  setDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase/client";
 import { uploadImage } from "@/lib/firebase/upload";
-import { DEFAULT_PROJECTS } from "@/lib/default-projects";
 import { refreshPublicSiteCache } from "../actions";
 import type { Project, ProjectCategory } from "@/lib/firestore-types";
 import { Plus, Pencil, Trash2, Upload, X } from "lucide-react";
@@ -40,10 +37,8 @@ function toProject(docId: string, data: Record<string, unknown>): Project & { id
 }
 
 export default function ControlCentreProjectsPage() {
-  const router = useRouter();
   const [projects, setProjects] = useState<(Project & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<Partial<Project>>({
@@ -77,35 +72,6 @@ export default function ControlCentreProjectsPage() {
   useEffect(() => {
     load();
   }, []);
-
-  async function importDefaults() {
-    setImporting(true);
-    try {
-      const db = getFirestoreDb();
-      await Promise.all(
-        DEFAULT_PROJECTS.map((p, index) =>
-          setDoc(doc(db, PROJECTS_COLLECTION, `website-${index}`), {
-            title: p.title,
-            suburb: p.suburb,
-            description: p.description,
-            tags: p.tags,
-            category: p.category,
-            imageUrls: p.imageUrls,
-            order: index,
-            updatedAt: serverTimestamp(),
-          })
-        )
-      );
-      await load();
-      router.refresh();
-      await refreshPublicSiteCache();
-    } catch (e) {
-      console.error(e);
-      alert("Failed to import default projects.");
-    } finally {
-      setImporting(false);
-    }
-  }
 
   function openCreate() {
     setCreating(true);
@@ -270,15 +236,6 @@ export default function ControlCentreProjectsPage() {
         Changes here are saved to Firestore and appear on the public website.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={importDefaults}
-          disabled={importing}
-          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" />
-          {importing ? "Importing…" : "Import default projects from website"}
-        </button>
         <button
           type="button"
           onClick={openCreate}
