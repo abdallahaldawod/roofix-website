@@ -7,11 +7,14 @@ import ScrollToTop from "@/components/ScrollToTop";
 
 export default function LayoutSwitcher({
   children,
+  isControlCentre: isControlCentreFromServer,
 }: {
   children: React.ReactNode;
+  isControlCentre?: boolean;
 }) {
   const pathname = usePathname();
-  const isControlCentre = pathname?.startsWith("/control-centre") ?? false;
+  const isControlCentreByPath = pathname?.startsWith("/control-centre") ?? false;
+  const isControlCentre = isControlCentreFromServer ?? isControlCentreByPath;
 
   if (isControlCentre) {
     return <>{children}</>;

@@ -60,19 +60,23 @@ export const metadata: Metadata = {
   manifest: "/site.webmanifest",
 };
 
+import { headers } from "next/headers";
 import LayoutSwitcher from "@/components/LayoutSwitcher";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headersList = await headers();
+  const isControlCentre = headersList.get("x-is-control-centre") === "1";
+
   return (
     <html lang="en-AU">
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
-        <LayoutSwitcher>{children}</LayoutSwitcher>
+        <LayoutSwitcher isControlCentre={isControlCentre}>{children}</LayoutSwitcher>
       </body>
     </html>
   );

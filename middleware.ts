@@ -22,6 +22,12 @@ export function middleware(request: NextRequest) {
     hostname === "localhost" || hostname === "127.0.0.1";
   const allowedControlCentre = isAdminHost || isLocalhost;
 
+  const controlCentreHeaders = () => {
+    const h = new Headers(request.headers);
+    h.set("x-is-control-centre", "1");
+    return h;
+  };
+
   // /control-centre or /control-centre/** on non-allowed host → 404 (hidden, no redirect)
   if (
     pathname === "/control-centre" ||
@@ -30,13 +36,18 @@ export function middleware(request: NextRequest) {
     if (!allowedControlCentre) {
       return NextResponse.rewrite(new URL("/not-found", request.url));
     }
-    return NextResponse.next();
+    const url = new URL(pathname + request.nextUrl.search, request.url);
+    return NextResponse.rewrite(url, {
+      request: { headers: controlCentreHeaders() },
+    });
   }
 
   // On admin host only: clean URL rewrites (/, /login, /projects, etc. → /control-centre/...)
   if (isAdminHost) {
     if (pathname === "/" || pathname === "") {
-      return NextResponse.rewrite(new URL("/control-centre", request.url));
+      return NextResponse.rewrite(new URL("/control-centre", request.url), {
+        request: { headers: controlCentreHeaders() },
+      });
     }
     if (
       pathname === "/login" ||
@@ -47,7 +58,9 @@ export function middleware(request: NextRequest) {
       pathname.startsWith("/services/")
     ) {
       const controlPath = "/control-centre" + pathname;
-      return NextResponse.rewrite(new URL(controlPath, request.url));
+      return NextResponse.rewrite(new URL(controlPath, request.url), {
+        request: { headers: controlCentreHeaders() },
+      });
     }
   }
 
