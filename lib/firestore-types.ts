@@ -6,6 +6,8 @@ export type ProjectCategory = "roofing" | "gutters" | "repairs";
 
 export type Project = {
   id?: string;
+  /** URL path segment (e.g. "full-roof-manly"). Stored in Firestore; also used as document ID. */
+  slug?: string;
   title: string;
   suburb: string;
   description: string;

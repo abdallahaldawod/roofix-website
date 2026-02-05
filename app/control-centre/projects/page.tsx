@@ -36,6 +36,7 @@ const CATEGORIES: { value: ProjectCategory; label: string }[] = [
 function toProject(docId: string, data: Record<string, unknown>): Project & { id: string } {
   return {
     id: docId,
+    slug: typeof data.slug === "string" ? data.slug : docId,
     title: (data.title as string) ?? "",
     suburb: (data.suburb as string) ?? "",
     description: (data.description as string) ?? "",
@@ -109,7 +110,7 @@ export default function ControlCentreProjectsPage() {
       tags: p.tags ?? [],
       category: p.category,
       imageUrls: p.imageUrls ?? [],
-      slug: p.id,
+      slug: p.slug ?? p.id,
     });
     setTagInput("");
   }
@@ -182,7 +183,8 @@ export default function ControlCentreProjectsPage() {
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      const payload = {
+      let newId: string;
+      const basePayload = {
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
@@ -193,7 +195,6 @@ export default function ControlCentreProjectsPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      let newId: string;
       if (slug) {
         const existing = await getDoc(doc(db, PROJECTS_COLLECTION, slug));
         if (existing.exists()) {
@@ -201,11 +202,12 @@ export default function ControlCentreProjectsPage() {
           setSaving(false);
           return;
         }
-        await setDoc(doc(db, PROJECTS_COLLECTION, slug), payload);
+        await setDoc(doc(db, PROJECTS_COLLECTION, slug), { ...basePayload, slug });
         newId = slug;
       } else {
-        const ref = await addDoc(collection(db, PROJECTS_COLLECTION), payload);
+        const ref = await addDoc(collection(db, PROJECTS_COLLECTION), basePayload);
         newId = ref.id;
+        await updateDoc(doc(db, PROJECTS_COLLECTION, newId), { slug: newId });
       }
       setCreating(false);
       await load();
@@ -229,7 +231,7 @@ export default function ControlCentreProjectsPage() {
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      const payload = {
+      const basePayload = {
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
@@ -248,12 +250,17 @@ export default function ControlCentreProjectsPage() {
         const oldRef = doc(db, PROJECTS_COLLECTION, editing);
         const oldSnap = await getDoc(oldRef);
         const order = (oldSnap.data()?.order as number) ?? 9999;
-        await setDoc(doc(db, PROJECTS_COLLECTION, newSlug), { ...payload, order, createdAt: oldSnap.data()?.createdAt });
+        await setDoc(doc(db, PROJECTS_COLLECTION, newSlug), {
+          ...basePayload,
+          slug: newSlug,
+          order,
+          createdAt: oldSnap.data()?.createdAt,
+        });
         await deleteDoc(oldRef);
         await refreshPublicSiteCache(newSlug);
         await refreshPublicSiteCache(editing);
       } else {
-        await updateDoc(doc(db, PROJECTS_COLLECTION, editing), payload);
+        await updateDoc(doc(db, PROJECTS_COLLECTION, editing), { ...basePayload, slug: editing });
         await refreshPublicSiteCache(editing);
       }
       setEditing(null);
