@@ -28,7 +28,8 @@ async function getCollectionUncached<T>(collectionId: string): Promise<T[]> {
     const db = getAdminFirestore();
     if (!db) return [];
     const snapshot = await db.collection(collectionId).get();
-    const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T & { id: string }));
+    // id must come last so Firestore document ID always wins (doc.data() may contain its own "id" field)
+    const items = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id } as T & { id: string }));
     // Only include items that have required fields (e.g. services need slug + title)
     const filtered =
       collectionId === SERVICES_COLLECTION
