@@ -1,0 +1,53 @@
+# Firebase App Hosting – production env (same APIs/storage as local).
+# Create secrets in Google Cloud Console → Security → Secret Manager (same names as below).
+# Deploy Firestore + Storage rules: firebase deploy --only firestore,storage
+# See DEPLOYMENT.md for full steps.
+
+runConfig:
+  minInstances: 0
+
+env:
+  # --- Contact form (Resend) ---
+  - variable: RESEND_API_KEY
+    secret: RESEND_API_KEY
+    availability: [BUILD, RUNTIME]
+  - variable: CONTACT_FORM_TO_EMAIL
+    value: "info@roofix.com.au"
+    availability: [BUILD, RUNTIME]
+  # Optional: set after verifying domain in Resend. If omitted, Resend uses default sender.
+  - variable: CONTACT_FORM_FROM_EMAIL
+    value: "Roofix <noreply@roofix.com.au>"
+    availability: [BUILD, RUNTIME]
+
+  # --- Google Places (address autocomplete) ---
+  - variable: GOOGLE_PLACES_API_KEY
+    secret: GOOGLE_PLACES_API_KEY
+    availability: [BUILD, RUNTIME]
+
+  # --- Firebase (server: Firestore read; client: auth, Firestore write, Storage) ---
+  - variable: FIREBASE_PROJECT_ID
+    value: "roofix-768a5"
+    availability: [BUILD, RUNTIME]
+  - variable: FIREBASE_SERVICE_ACCOUNT_KEY
+    secret: FIREBASE_SERVICE_ACCOUNT_KEY
+    availability: [RUNTIME]
+
+  # Client config (must be available at BUILD for Next.js public env).
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: NEXT_PUBLIC_FIREBASE_API_KEY
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "roofix-768a5.firebaseapp.com"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "roofix-768a5"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "roofix-768a5.appspot.com"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    secret: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    secret: NEXT_PUBLIC_FIREBASE_APP_ID
+    availability: [BUILD, RUNTIME]

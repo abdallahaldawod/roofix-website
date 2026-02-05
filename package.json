@@ -1,0 +1,36 @@
+{
+  "name": "roofix-website",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "deploy:storage": "npx firebase-tools deploy --only storage",
+    "deploy:rules": "npx firebase-tools deploy --only firestore,storage"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "firebase": "^12.8.0",
+    "firebase-admin": "^13.6.1",
+    "lucide-react": "^0.563.0",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "resend": "^6.9.1"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.0.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "png-to-ico": "^2.1.1",
+    "sharp": "^0.33.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
