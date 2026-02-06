@@ -1,13 +1,16 @@
 "use client";
 
 import Script from "next/script";
+import { usePathname } from "next/navigation";
 
 type GA4ScriptProps = {
   gaId: string;
 };
 
 export default function GA4Script({ gaId }: GA4ScriptProps) {
-  if (!gaId || !gaId.startsWith("G-")) return null;
+  const pathname = usePathname();
+  const isControlCentrePath = pathname?.startsWith("/control-centre") ?? false;
+  if (!gaId || !gaId.startsWith("G-") || isControlCentrePath) return null;
 
   return (
     <>

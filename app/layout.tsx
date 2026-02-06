@@ -73,13 +73,15 @@ export default async function RootLayout({
 }>) {
   const headersList = await headers();
   const isControlCentre = headersList.get("x-is-control-centre") === "1";
+  const host = (headersList.get("x-forwarded-host") ?? headersList.get("host") ?? "").split(",")[0].trim().toLowerCase();
+  const isAdminHost = host.includes("admin.roofix") || host === "admin.roofix.com.au";
 
   return (
     <html lang="en-AU">
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
-        {!isControlCentre && GA4_ID && <GA4Script gaId={GA4_ID} />}
+        {!isControlCentre && !isAdminHost && GA4_ID && <GA4Script gaId={GA4_ID} />}
         <LayoutSwitcher isControlCentre={isControlCentre}>{children}</LayoutSwitcher>
       </body>
     </html>

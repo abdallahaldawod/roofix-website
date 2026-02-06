@@ -241,7 +241,8 @@ export type Ga4RealtimeResult =
   | { ok: false; error: string; ga4Code?: string; ga4Message?: string };
 
 /**
- * Fetches real-time active users from GA4 (last ~30 min). Uses runRealtimeReport.
+ * Fetches active users in the current minute only ("active right now"). Uses runRealtimeReport
+ * with dimension minutesAgo and takes only the row for "0" (current minute).
  */
 export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<Ga4RealtimeResult> {
   const client = getGa4Client();
@@ -254,18 +255,35 @@ export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<G
   }
 
   const property = `properties/${propertyId}`;
+  const mainStreamId = process.env.GA4_MAIN_STREAM_ID?.trim();
   if (process.env.NODE_ENV === "development") {
-    console.info("[GA4 Realtime] property:", property);
+    console.info("[GA4 Realtime] property:", property, "scope: current minute only", mainStreamId ? "streamId=" + mainStreamId : "");
   }
 
   try {
-    const [response] = await client.runRealtimeReport({
+    const request: Parameters<typeof client.runRealtimeReport>[0] = {
       property,
+      dimensions: [{ name: "minutesAgo" }],
       metrics: [{ name: "activeUsers" }],
-    });
+    };
+    if (mainStreamId) {
+      request.dimensionFilter = {
+        filter: {
+          fieldName: "streamId",
+          stringFilter: { matchType: "EXACT", value: mainStreamId },
+        },
+      };
+    }
+    const [response] = await client.runRealtimeReport(request);
 
-    const row = response.rows?.[0];
-    const activeUsers = row?.metricValues?.[0]?.value != null ? Number(row.metricValues[0].value) : 0;
+    // minutesAgo "0" = current minute; "1" = previous minute, etc. We only want "0" = active right now.
+    const rows = (response.rows ?? []) as Array<{
+      dimensionValues?: Array<{ value?: string }>;
+      metricValues?: Array<{ value?: string }> | null;
+    }>;
+    const currentMinuteRow = rows.find((r) => r.dimensionValues?.[0]?.value === "0");
+    const activeUsers =
+      currentMinuteRow?.metricValues?.[0]?.value != null ? Number(currentMinuteRow.metricValues[0].value) : 0;
 
     return { ok: true, activeUsers };
   } catch (e) {

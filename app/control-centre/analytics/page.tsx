@@ -201,7 +201,7 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchLiveActiveUsers();
-    const interval = setInterval(fetchLiveActiveUsers, 45 * 1000);
+    const interval = setInterval(fetchLiveActiveUsers, 1000);
     return () => clearInterval(interval);
   }, [fetchLiveActiveUsers]);
 
@@ -273,8 +273,8 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Current active users right now — GA4 real-time (last ~30 min), polls every 45s */}
-      <section aria-label="Active users right now">
+      {/* Active right now = GA4 realtime report filtered to current minute only (minutesAgo = 0) */}
+      <section aria-label="Active right now">
         <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
@@ -283,7 +283,7 @@ export default function AnalyticsPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
-                  Active users right now
+                  Active right now
                 </span>
                 <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-medium text-white animate-pulse">
                   LIVE
@@ -295,13 +295,13 @@ export default function AnalyticsPage() {
                 ) : liveError ? (
                   <p className="text-sm text-amber-700">{liveError}</p>
                 ) : (
-                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Users on your site in the last 30 minutes">
+                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Active users on roofix.com.au (excludes admin) in the current minute">
                     {liveActiveUsers != null ? liveActiveUsers.toLocaleString() : "—"}
                   </p>
                 )}
               </div>
               <p className="mt-0.5 text-xs text-neutral-500">
-                Users on your site in the last 30 minutes · refreshes every 45s
+                roofix.com.au only (excludes admin) · updates every second
               </p>
             </div>
           </div>
