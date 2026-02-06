@@ -1,8 +1,9 @@
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
-import { fetchGa4RealtimeActiveUsers } from "@/lib/ga4-data";
+import { fetchGa4RealtimeActiveUsers, type RealtimeRange } from "@/lib/ga4-data";
 import { NextRequest, NextResponse } from "next/server";
 
 const NUMERIC_PROPERTY_ID = /^\d+$/;
+const RANGE_VALUES: RealtimeRange[] = ["1m", "5m", "30m"];
 
 const ALLOWED_ORIGINS = [
   "https://admin.roofix.com.au",
@@ -51,7 +52,10 @@ export async function GET(request: NextRequest) {
     return res;
   }
 
-  const result = await fetchGa4RealtimeActiveUsers(rawPropertyId);
+  const rangeParam = request.nextUrl.searchParams.get("range") ?? "30m";
+  const range: RealtimeRange = RANGE_VALUES.includes(rangeParam as RealtimeRange) ? (rangeParam as RealtimeRange) : "30m";
+
+  const result = await fetchGa4RealtimeActiveUsers(rawPropertyId, range);
 
   if (!result.ok) {
     const res = NextResponse.json(

@@ -38,6 +38,7 @@ type Ga4ByDateRow = {
 
 type Ga4TopPageRow = { pagePath: string; screenPageViews: number };
 type Ga4TopSourceRow = { sessionSource: string; sessionMedium: string; sessions: number };
+type Ga4DeviceRow = { deviceCategory: string; activeUsers: number };
 type Ga4EventRow = { eventName: string; eventCount: number };
 
 type ApiResponse = {
@@ -46,12 +47,17 @@ type ApiResponse = {
   byDate?: Ga4ByDateRow[];
   topPages?: Ga4TopPageRow[];
   topSources?: Ga4TopSourceRow[];
+  devices?: Ga4DeviceRow[];
   events?: Ga4EventRow[];
   error?: string;
 };
 
+/** Date as YYYY-MM-DD in local timezone (so "today" is the user's actual day) */
 function formatDateYMD(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function getDateRange(preset: "7d" | "28d" | "90d"): { startDate: string; endDate: string } {
@@ -64,6 +70,19 @@ function getDateRange(preset: "7d" | "28d" | "90d"): { startDate: string; endDat
     startDate: formatDateYMD(start),
     endDate: formatDateYMD(end),
   };
+}
+
+/** All dates between start and end (inclusive), in GA4 format YYYYMMDD. Uses local date. */
+function getDatesInRange(startDate: string, endDate: string): string[] {
+  const start = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  const out: string[] = [];
+  const d = new Date(start);
+  while (d <= end) {
+    out.push(formatDateYMD(d).replace(/-/g, ""));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
 }
 
 /** Format YYYYMMDD for chart axis: DD/MM */
@@ -123,8 +142,12 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveActiveUsers, setLiveActiveUsers] = useState<number | null>(null);
+  const [liveDisplayValue, setLiveDisplayValue] = useState<number | null>(null);
+  const liveAnimationRef = useRef<number | null>(null);
+
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [liveRange, setLiveRange] = useState<"1m" | "5m" | "30m">("30m");
 
   const fetchData = useCallback(async () => {
     const cached = getCached(preset);
@@ -173,7 +196,7 @@ export default function AnalyticsPage() {
     }
     const token = await user.getIdToken();
     try {
-      const res = await fetch("/api/control-centre/analytics/realtime", {
+      const res = await fetch(`/api/control-centre/analytics/realtime?range=${liveRange}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = (await res.json()) as { ok: boolean; activeUsers?: number; error?: string };
@@ -198,7 +221,7 @@ export default function AnalyticsPage() {
     } finally {
       setLiveLoading(false);
     }
-  }, []);
+  }, [liveRange]);
 
   useEffect(() => {
     const cached = getCached(preset);
@@ -215,14 +238,58 @@ export default function AnalyticsPage() {
     return () => clearInterval(interval);
   }, [fetchLiveActiveUsers]);
 
+  useEffect(() => {
+    if (liveActiveUsers == null) {
+      setLiveDisplayValue(null);
+      return;
+    }
+    const start = liveDisplayValue ?? 0;
+    const end = liveActiveUsers;
+    if (start === end) {
+      setLiveDisplayValue(end);
+      return;
+    }
+    const durationMs = 500;
+    const startTime = performance.now();
+    const easeOutQuad = (t: number) => t * (2 - t);
+
+    const tick = (now: number) => {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = easeOutQuad(t);
+      const value = Math.round(start + (end - start) * eased);
+      setLiveDisplayValue(value);
+      if (t < 1) {
+        liveAnimationRef.current = requestAnimationFrame(tick);
+      } else {
+        setLiveDisplayValue(end);
+        liveAnimationRef.current = null;
+      }
+    };
+    liveAnimationRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (liveAnimationRef.current != null) {
+        cancelAnimationFrame(liveAnimationRef.current);
+        liveAnimationRef.current = null;
+      }
+    };
+  }, [liveActiveUsers]);
+
   const summary = data?.ok ? data.summary : undefined;
-  const byDate = data?.ok
+  const byDateRaw = data?.ok
     ? (data.byDate ?? [])
         .map((r) => ({ ...r, label: formatChartDate(r.date), labelLong: formatChartDateLong(r.date) }))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
+  const { startDate, endDate } = getDateRange(preset);
+  const allDates = getDatesInRange(startDate, endDate);
+  const byDate = allDates.map((date) => {
+    const row = byDateRaw.find((r) => r.date === date);
+    return row ?? { date, activeUsers: 0, sessions: 0, screenPageViews: 0, label: formatChartDate(date), labelLong: formatChartDateLong(date) };
+  });
   const topPages = data?.ok ? data.topPages ?? [] : [];
   const topSources = data?.ok ? data.topSources ?? [] : [];
+  const devices = data?.ok ? data.devices ?? [] : [];
   const events = data?.ok ? data.events ?? [] : [];
 
   return (
@@ -252,15 +319,6 @@ export default function AnalyticsPage() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => fetchData()}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
         </div>
       </header>
 
@@ -283,38 +341,55 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Active right now = GA4 realtime report filtered to current minute only (minutesAgo = 0) */}
-      <section aria-label="Active right now">
+      {/* Active users = GA4 realtime, selectable range */}
+      <section aria-label="Active users">
         <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-              <Radio className="h-5 w-5" />
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
-                  Active right now
-                </span>
-                <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-medium text-white animate-pulse">
-                  LIVE
-                </span>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                <Radio className="h-5 w-5" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                    Active users
+                  </span>
+                  <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-medium text-white animate-pulse">
+                    LIVE
+                  </span>
+                </div>
+                <div className="mt-1 min-h-[2rem]">
+                  {liveLoading ? (
+                    <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
+                  ) : liveError ? (
+                    <p className="text-sm text-amber-700" title={liveError}>
+                      {liveError}
+                    </p>
+                  ) : (
+                    <p className="tabular-nums text-2xl font-bold text-neutral-900" title={liveRange === "1m" ? "Last 1 min" : liveRange === "5m" ? "Last 5 min" : "Last 30 min"}>
+                      {liveDisplayValue != null ? liveDisplayValue.toLocaleString() : "—"}
+                    </p>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-500">
+                  {liveRange === "1m" ? "Last 1 min" : liveRange === "5m" ? "Last 5 min" : "Last 30 min"}
+                  {" · updates every 45s"}
+                </p>
               </div>
-              <div className="mt-1 min-h-[2rem]">
-                {liveLoading ? (
-                  <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
-                ) : liveError ? (
-                  <p className="text-sm text-amber-700" title={liveError}>
-                    {liveError}
-                  </p>
-                ) : (
-                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Active in the current minute (drops when users leave)">
-                    {liveActiveUsers != null ? liveActiveUsers.toLocaleString() : "—"}
-                  </p>
-                )}
-              </div>
-              <p className="mt-0.5 text-xs text-neutral-500">
-                roofix.com.au only · current minute · updates every 45s
-              </p>
+            </div>
+            <div className="flex rounded-lg border border-emerald-200 bg-white p-1">
+              {(["1m", "5m", "30m"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setLiveRange(r)}
+                  className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    liveRange === r ? "bg-emerald-600 text-white" : "text-neutral-600 hover:bg-emerald-50"
+                  }`}
+                >
+                  {r === "1m" ? "1 min" : r === "5m" ? "5 min" : "30 min"}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -353,9 +428,14 @@ export default function AnalyticsPage() {
             />
           </section>
 
-          <section className={`overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}>
+          <section className={`overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`} aria-label={`Active users over time, ${preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}`}>
             <div className="border-b border-neutral-100 bg-neutral-50/80 px-4 py-3">
-              <h2 className="text-sm font-semibold text-neutral-700">Active users over time</h2>
+              <h2 className="text-sm font-semibold text-neutral-700">
+                Active users over time
+                <span className="ml-2 font-normal text-neutral-500">
+                  {preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}
+                </span>
+              </h2>
             </div>
             <div className="h-80 px-4 py-4">
               {loading ? (
@@ -408,16 +488,17 @@ export default function AnalyticsPage() {
                       cursor={{ stroke: "#e5e5e5", strokeWidth: 1, strokeDasharray: "4 4" }}
                     />
                     <Area
-                      type="natural"
+                      type="monotone"
                       dataKey="activeUsers"
                       fill="url(#activeUsersGradient)"
                       stroke="none"
                       isAnimationActive
                       animationDuration={500}
                       animationEasing="ease-out"
+                      hide
                     />
                     <Line
-                      type="natural"
+                      type="monotone"
                       dataKey="activeUsers"
                       stroke="#0f172a"
                       strokeWidth={2.5}
@@ -440,7 +521,7 @@ export default function AnalyticsPage() {
             </div>
           </section>
 
-          <div className={`grid gap-6 lg:grid-cols-2 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}>
+          <div className={`grid gap-6 lg:grid-cols-3 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}>
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="border-b border-neutral-100 bg-neutral-50/80 px-4 py-3">
                 <h2 className="text-sm font-semibold text-neutral-700">Top pages</h2>
@@ -503,6 +584,39 @@ export default function AnalyticsPage() {
                   </ul>
                 ) : (
                   <p className="text-sm text-neutral-500">No source data</p>
+                )}
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+              <div className="border-b border-neutral-100 bg-neutral-50/80 px-4 py-3">
+                <h2 className="text-sm font-semibold text-neutral-700">Devices</h2>
+              </div>
+              <div className="max-h-64 overflow-auto p-4">
+                {loading ? (
+                  <ul className="space-y-2 text-sm" aria-hidden>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <li key={i} className="analytics-line-skeleton">
+                        <span className="analytics-shimmer" />
+                        <span className="analytics-shimmer" />
+                      </li>
+                    ))}
+                  </ul>
+                ) : devices.length > 0 ? (
+                  <ul className="space-y-2 text-sm">
+                    {devices.map((row, i) => (
+                      <li key={i} className="flex justify-between gap-2">
+                        <span className="text-neutral-700">
+                          {row.deviceCategory || "(not set)"}
+                        </span>
+                        <span className="shrink-0 font-medium text-neutral-900">
+                          {row.activeUsers.toLocaleString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-neutral-500">No device data</p>
                 )}
               </div>
             </section>

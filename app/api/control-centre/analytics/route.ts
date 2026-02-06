@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
     byDate: result.byDate,
     topPages: result.topPages,
     topSources: result.topSources,
+    devices: result.devices,
     events: result.events,
   });
 }

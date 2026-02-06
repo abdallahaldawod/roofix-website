@@ -38,6 +38,11 @@ export type Ga4EventRow = {
   eventCount: number;
 };
 
+export type Ga4DeviceRow = {
+  deviceCategory: string;
+  activeUsers: number;
+};
+
 export type Ga4Result =
   | {
       ok: true;
@@ -45,6 +50,7 @@ export type Ga4Result =
       byDate: Ga4ByDateRow[];
       topPages: Ga4TopPageRow[];
       topSources: Ga4TopSourceRow[];
+      devices: Ga4DeviceRow[];
       events: Ga4EventRow[];
     }
   | {
@@ -141,11 +147,11 @@ export async function fetchGa4Analytics(
   ];
 
   try {
-    // Run all 4 GA4 reports in parallel for faster response
+    // Run all 5 GA4 reports in parallel for faster response
     if (process.env.NODE_ENV === "development") {
-      console.info("[GA4 Data] runReport: 4 reports in parallel");
+      console.info("[GA4 Data] runReport: 5 reports in parallel");
     }
-    const [summaryRes, pagesRes, sourcesRes, eventsRes] = await Promise.all([
+    const [summaryRes, pagesRes, sourcesRes, devicesRes, eventsRes] = await Promise.all([
       client.runReport({
         property,
         dateRanges: [dateRange],
@@ -164,6 +170,13 @@ export async function fetchGa4Analytics(
         dateRanges: [dateRange],
         dimensions: [{ name: "sessionSource" }, { name: "sessionMedium" }],
         metrics: [{ name: "sessions" }],
+        limit: 10,
+      }),
+      client.runReport({
+        property,
+        dateRanges: [dateRange],
+        dimensions: [{ name: "deviceCategory" }],
+        metrics: [{ name: "activeUsers" }],
         limit: 10,
       }),
       client.runReport({
@@ -209,6 +222,11 @@ export async function fetchGa4Analytics(
       sessions: Number(row.metricValues?.[0]?.value ?? 0),
     }));
 
+    const devices: Ga4DeviceRow[] = (devicesRes[0]?.rows ?? []).map((row) => ({
+      deviceCategory: row.dimensionValues?.[0]?.value ?? "",
+      activeUsers: Number(row.metricValues?.[0]?.value ?? 0),
+    }));
+
     const events: Ga4EventRow[] = (eventsRes[0]?.rows ?? []).map((row) => ({
       eventName: row.dimensionValues?.[0]?.value ?? "",
       eventCount: Number(row.metricValues?.[0]?.value ?? 0),
@@ -220,6 +238,7 @@ export async function fetchGa4Analytics(
       byDate,
       topPages,
       topSources,
+      devices,
       events,
     };
   } catch (e) {
@@ -240,12 +259,16 @@ export type Ga4RealtimeResult =
   | { ok: true; activeUsers: number }
   | { ok: false; error: string; ga4Code?: string; ga4Message?: string };
 
+export type RealtimeRange = "1m" | "5m" | "30m";
+
 /**
- * Fetches active users in the current minute only (GA4 realtime). Uses runRealtimeReport
- * with dimension minutesAgo; only row "0" (current minute) is counted so the number drops
- * when users close the site (within ~1 minute). Excludes admin when GA4_MAIN_STREAM_ID is set.
+ * Fetches active users (GA4 realtime) for the given range: 1m, 5m, or 30m.
+ * Uses minutesAgo dimension and sums the relevant minutes.
  */
-export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<Ga4RealtimeResult> {
+export async function fetchGa4RealtimeActiveUsers(
+  propertyId: string,
+  range: RealtimeRange = "30m"
+): Promise<Ga4RealtimeResult> {
   const client = getGa4Client();
   if (!client) {
     return {
@@ -256,34 +279,40 @@ export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<G
   }
 
   const property = `properties/${propertyId}`;
-  const mainStreamId = process.env.GA4_MAIN_STREAM_ID?.trim();
-  if (process.env.NODE_ENV === "development") {
-    console.info("[GA4 Realtime] property:", property, "current minute only", mainStreamId ? "streamId=" + mainStreamId : "");
-  }
+  const minuteCount = range === "1m" ? 1 : range === "5m" ? 5 : 30;
 
   try {
-    const request: Parameters<typeof client.runRealtimeReport>[0] = {
+    const [response] = await client.runRealtimeReport({
       property,
       dimensions: [{ name: "minutesAgo" }],
       metrics: [{ name: "activeUsers" }],
-    };
-    if (mainStreamId) {
-      request.dimensionFilter = {
-        filter: {
-          fieldName: "streamId",
-          stringFilter: { matchType: "EXACT", value: mainStreamId },
-        },
-      };
-    }
-    const [response] = await client.runRealtimeReport(request);
+    });
 
     const rows = (response.rows ?? []) as Array<{
       dimensionValues?: Array<{ value?: string }>;
       metricValues?: Array<{ value?: string }> | null;
     }>;
-    const currentMinuteRow = rows.find((r) => r.dimensionValues?.[0]?.value === "0");
-    const activeUsers =
-      currentMinuteRow?.metricValues?.[0]?.value != null ? Number(currentMinuteRow.metricValues[0].value) : 0;
+    const byMinute = new Map<number, number>();
+    for (const row of rows) {
+      const raw = row.dimensionValues?.[0]?.value ?? "";
+      const minuteIndex = raw === "" ? NaN : parseInt(raw, 10);
+      if (!Number.isNaN(minuteIndex) && minuteIndex >= 0) {
+        const val = row.metricValues?.[0]?.value != null ? Number(row.metricValues[0].value) : 0;
+        byMinute.set(minuteIndex, (byMinute.get(minuteIndex) ?? 0) + val);
+      }
+    }
+    const getVal = (i: number) => byMinute.get(i) ?? 0;
+
+    let activeUsers: number;
+    if (minuteCount === 1) {
+      activeUsers = getVal(0);
+    } else {
+      const cap = Math.min(minuteCount, 30);
+      activeUsers = 0;
+      for (let i = 0; i < cap; i++) {
+        activeUsers += getVal(i);
+      }
+    }
 
     return { ok: true, activeUsers };
   } catch (e) {
