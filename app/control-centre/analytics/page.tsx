@@ -148,6 +148,11 @@ export default function AnalyticsPage() {
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [liveRange, setLiveRange] = useState<"1m" | "5m" | "30m">("30m");
+  const liveActiveUsersRef = useRef<number | null>(null);
+  const consecutiveZeroRef = useRef(0);
+
+  const POLL_FAST_MS = 20_000;  // when there's activity: update every 20s (feels faster)
+  const POLL_SLOW_MS = 60_000; // when idle (0 users): poll every 60s (fewer requests)
 
   const fetchData = useCallback(async () => {
     const cached = getCached(preset);
@@ -201,7 +206,14 @@ export default function AnalyticsPage() {
       });
       const json = (await res.json()) as { ok: boolean; activeUsers?: number; error?: string };
       if (res.ok && json.ok && json.activeUsers != null) {
-        setLiveActiveUsers(json.activeUsers);
+        const next = json.activeUsers;
+        if (next === 0) {
+          consecutiveZeroRef.current += 1;
+        } else {
+          consecutiveZeroRef.current = 0;
+        }
+        liveActiveUsersRef.current = next;
+        setLiveActiveUsers(next);
         setLiveError(null);
       } else {
         const err = json.error ?? "Failed to load";
@@ -233,9 +245,20 @@ export default function AnalyticsPage() {
   }, [fetchData]);
 
   useEffect(() => {
-    fetchLiveActiveUsers();
-    const interval = setInterval(fetchLiveActiveUsers, 45 * 1000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNext = () => {
+      const isIdle = liveActiveUsersRef.current === 0 && consecutiveZeroRef.current >= 2;
+      const ms = isIdle ? POLL_SLOW_MS : POLL_FAST_MS;
+      timeoutId = setTimeout(() => {
+        fetchLiveActiveUsers().then(scheduleNext);
+      }, ms);
+    };
+
+    fetchLiveActiveUsers().then(scheduleNext);
+    return () => {
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
   }, [fetchLiveActiveUsers]);
 
   useEffect(() => {
@@ -293,25 +316,25 @@ export default function AnalyticsPage() {
   const events = data?.ok ? data.events ?? [] : [];
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-neutral-900">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600">
-              <BarChart3 className="h-5 w-5" />
+    <div className="min-w-0 space-y-4 sm:space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-neutral-900 sm:text-2xl">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600 sm:h-9 sm:w-9">
+              <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" />
             </span>
-            Website Analytics
+            <span className="truncate">Website Analytics</span>
           </h1>
-          <p className="mt-1.5 text-sm text-neutral-500">GA4 metrics from your property</p>
+          <p className="mt-1 text-sm text-neutral-500">GA4 metrics from your property</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-neutral-200 bg-white p-1">
+          <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-200 bg-white p-1">
             {PRESETS.map((p) => (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => setPreset(p.value)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`min-h-[40px] rounded-md px-3 py-2 text-sm font-medium transition-colors sm:py-1.5 ${
                   preset === p.value ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"
                 }`}
               >
@@ -343,14 +366,14 @@ export default function AnalyticsPage() {
 
       {/* Active users = GA4 realtime, selectable range */}
       <section aria-label="Active users">
-        <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
+        <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-3 shadow-sm sm:p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
                 <Radio className="h-5 w-5" />
               </span>
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
                     Active users
                   </span>
@@ -366,24 +389,24 @@ export default function AnalyticsPage() {
                       {liveError}
                     </p>
                   ) : (
-                    <p className="tabular-nums text-2xl font-bold text-neutral-900" title={liveRange === "1m" ? "Last 1 min" : liveRange === "5m" ? "Last 5 min" : "Last 30 min"}>
+                    <p className="tabular-nums text-xl font-bold text-neutral-900 sm:text-2xl" title={liveRange === "1m" ? "Last 1 min" : liveRange === "5m" ? "Last 5 min" : "Last 30 min"}>
                       {liveDisplayValue != null ? liveDisplayValue.toLocaleString() : "—"}
                     </p>
                   )}
                 </div>
                 <p className="mt-0.5 text-xs text-neutral-500">
                   {liveRange === "1m" ? "Last 1 min" : liveRange === "5m" ? "Last 5 min" : "Last 30 min"}
-                  {" · updates every 45s"}
+                  {" · updates every 20–60s"}
                 </p>
               </div>
             </div>
-            <div className="flex rounded-lg border border-emerald-200 bg-white p-1">
+            <div className="flex flex-wrap gap-1 rounded-lg border border-emerald-200 bg-white p-1">
               {(["1m", "5m", "30m"] as const).map((r) => (
                 <button
                   key={r}
                   type="button"
                   onClick={() => setLiveRange(r)}
-                  className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  className={`min-h-[36px] rounded-md px-2.5 py-2 text-xs font-medium transition-colors sm:py-1.5 ${
                     liveRange === r ? "bg-emerald-600 text-white" : "text-neutral-600 hover:bg-emerald-50"
                   }`}
                 >
@@ -399,7 +422,7 @@ export default function AnalyticsPage() {
       {summary && (
         <>
           <section
-            className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}
+            className={`grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}
             aria-label="Summary metrics"
           >
             <SummaryCard
@@ -428,8 +451,8 @@ export default function AnalyticsPage() {
             />
           </section>
 
-          <section className={`overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`} aria-label={`Active users over time, ${preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}`}>
-            <div className="border-b border-neutral-100 bg-neutral-50/80 px-4 py-3">
+          <section className={`min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`} aria-label={`Active users over time, ${preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}`}>
+            <div className="border-b border-neutral-100 bg-neutral-50/80 px-3 py-2 sm:px-4 sm:py-3">
               <h2 className="text-sm font-semibold text-neutral-700">
                 Active users over time
                 <span className="ml-2 font-normal text-neutral-500">
@@ -437,7 +460,7 @@ export default function AnalyticsPage() {
                 </span>
               </h2>
             </div>
-            <div className="h-80 px-4 py-4">
+            <div className="h-56 px-2 py-3 sm:h-80 sm:px-4 sm:py-4">
               {loading ? (
                 <div className="analytics-chart-skeleton h-full w-full" aria-hidden />
               ) : byDate.length > 0 ? (
@@ -521,7 +544,7 @@ export default function AnalyticsPage() {
             </div>
           </section>
 
-          <div className={`grid gap-6 lg:grid-cols-3 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}>
+          <div className={`grid gap-4 lg:grid-cols-3 lg:gap-6 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}>
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="border-b border-neutral-100 bg-neutral-50/80 px-4 py-3">
                 <h2 className="text-sm font-semibold text-neutral-700">Top pages</h2>
@@ -539,11 +562,11 @@ export default function AnalyticsPage() {
                 ) : topPages.length > 0 ? (
                   <ul className="space-y-2 text-sm">
                     {topPages.map((row, i) => (
-                      <li key={i} className="flex justify-between gap-2">
-                        <span className="truncate text-neutral-700" title={row.pagePath}>
+                      <li key={i} className="flex min-w-0 justify-between gap-2">
+                        <span className="min-w-0 truncate text-neutral-700" title={row.pagePath}>
                           {row.pagePath || "(not set)"}
                         </span>
-                        <span className="shrink-0 font-medium text-neutral-900">
+                        <span className="shrink-0 font-medium text-neutral-900 tabular-nums">
                           {row.screenPageViews.toLocaleString()}
                         </span>
                       </li>
@@ -572,11 +595,11 @@ export default function AnalyticsPage() {
                 ) : topSources.length > 0 ? (
                   <ul className="space-y-2 text-sm">
                     {topSources.map((row, i) => (
-                      <li key={i} className="flex justify-between gap-2">
-                        <span className="text-neutral-700">
+                      <li key={i} className="flex min-w-0 justify-between gap-2">
+                        <span className="min-w-0 truncate text-neutral-700" title={`${row.sessionSource || "(direct)"} / ${row.sessionMedium || "(none)"}`}>
                           {row.sessionSource || "(direct)"} / {row.sessionMedium || "(none)"}
                         </span>
-                        <span className="shrink-0 font-medium text-neutral-900">
+                        <span className="shrink-0 font-medium text-neutral-900 tabular-nums">
                           {row.sessions.toLocaleString()}
                         </span>
                       </li>
@@ -688,18 +711,18 @@ function SummaryCard({
   }, [value, isLoading]);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+    <div className="min-w-0 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:p-4">
       <div className="flex items-center gap-2 text-neutral-500">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="truncate text-xs font-medium uppercase tracking-wider">{label}</span>
       </div>
-      <div className="mt-2 h-8 min-h-[2rem]">
+      <div className="mt-2 h-8 min-h-[2rem] min-w-0 overflow-hidden">
         {isLoading ? (
           <div className="analytics-value-skeleton" aria-hidden />
         ) : (
           <p
             key={value}
-            className={`tabular-nums text-2xl font-semibold text-neutral-900 transition-all duration-300 ${
+            className={`truncate tabular-nums text-xl font-semibold text-neutral-900 transition-all duration-300 sm:text-2xl ${
               animating ? "animate-analytics-value" : ""
             }`}
           >

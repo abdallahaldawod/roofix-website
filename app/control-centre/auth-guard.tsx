@@ -56,7 +56,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
             Restart the dev server after changing env vars.
           </p>
         </div>
-        <a href="/" className="mt-6 text-sm text-neutral-500 hover:text-neutral-700">← Back to site</a>
+        <a href="/home" className="mt-6 text-sm text-neutral-500 hover:text-neutral-700">← Back to site</a>
       </div>
     );
   }

@@ -445,14 +445,14 @@ export default function ControlCentreProjectsPage() {
   const showForm = creating || editing;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-neutral-900">Projects</h1>
-      <p className="mt-2 text-sm text-neutral-500">
+    <div className="min-w-0">
+      <h1 className="text-xl font-bold text-neutral-900 sm:text-2xl">Projects</h1>
+      <p className="mt-1 text-sm text-neutral-500 sm:mt-2">
         Changes here are saved to Firestore and appear on the public website.
       </p>
 
       {/* Project filter tabs (All, Roofing, Gutters, Repairs) shown on /projects */}
-      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <section className="mt-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:mt-6 sm:p-4">
         <div>
           <h2 className="text-sm font-semibold text-neutral-900">Project filter tabs</h2>
           <p className="mt-0.5 text-xs text-neutral-500">
@@ -467,7 +467,7 @@ export default function ControlCentreProjectsPage() {
               {filterCategories.map((cat, index) => (
                 <div
                   key={cat.value}
-                  className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/50 p-2"
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/50 p-2 sm:flex-nowrap"
                 >
                   <span className="text-neutral-400" aria-hidden>
                     <GripVertical className="h-4 w-4" />
@@ -481,7 +481,7 @@ export default function ControlCentreProjectsPage() {
                         prev.map((c) => (c.value === cat.value ? { ...c, label } : c))
                       );
                     }}
-                    className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900"
+                    className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2 text-sm text-neutral-900"
                     placeholder="Tab label"
                     aria-label={`Filter tab for ${cat.value}`}
                   />
@@ -568,40 +568,40 @@ export default function ControlCentreProjectsPage() {
         )}
       </section>
 
-      <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 sm:mt-6">
         <button
           type="button"
           onClick={openCreate}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
         >
           <Plus className="h-4 w-4" /> Add project
         </button>
       </div>
 
       {loading ? (
-        <p className="mt-6 text-neutral-500">Loading…</p>
+        <p className="mt-4 text-neutral-500 sm:mt-6">Loading…</p>
       ) : (
-        <div className="mt-6 space-y-4">
+        <div className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {projects.map((p) => (
             <div
               key={p.id}
-              className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-4 shadow-sm"
+              className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="font-medium text-neutral-900">{p.title}</p>
                 <p className="text-sm text-neutral-500">{p.suburb} · {p.category}</p>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 break-all text-xs text-neutral-500">
                   <span className="font-medium text-neutral-600">URL slug:</span>{" "}
                   <span className="font-mono">{(p.slug ?? p.id) || "—"}</span>
                   {" · "}
                   <span className="font-mono">/projects/{(p.slug ?? p.id) || p.id}</span>
                 </p>
               </div>
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 gap-2 self-end sm:self-center">
                 <button
                   type="button"
                   onClick={() => openEdit(p)}
-                  className="rounded-lg p-2 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                   aria-label="Edit"
                 >
                   <Pencil className="h-4 w-4" />
@@ -609,7 +609,7 @@ export default function ControlCentreProjectsPage() {
                 <button
                   type="button"
                   onClick={() => remove(p.id)}
-                  className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50"
                   aria-label="Delete"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -624,15 +624,15 @@ export default function ControlCentreProjectsPage() {
       )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 shadow-lg sm:rounded-xl sm:p-6">
             <h2 className="text-lg font-semibold text-neutral-900">
               {creating ? "New project" : "Edit project"}
             </h2>
             <div className="mt-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Project ID / URL slug</label>
-                <div className="mt-1 flex gap-2">
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row">
                   <input
                     type="text"
                     value={form.slug ?? ""}
@@ -642,13 +642,13 @@ export default function ControlCentreProjectsPage() {
                       if (v !== (form.slug ?? "")) setForm((f) => ({ ...f, slug: v }));
                     }}
                     placeholder={creating ? "Auto-generated" : "e.g. project1"}
-                    className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                    className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
                   />
                   {creating && (
                     <button
                       type="button"
                       onClick={() => setForm((f) => ({ ...f, slug: generateProjectId() }))}
-                      className="shrink-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+                      className="shrink-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100 sm:py-2"
                     >
                       Regenerate
                     </button>
@@ -804,12 +804,12 @@ export default function ControlCentreProjectsPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => { setCreating(false); setEditing(null); }}
                 disabled={saving}
-                className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                className="min-h-[44px] rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -817,7 +817,7 @@ export default function ControlCentreProjectsPage() {
                 type="button"
                 onClick={creating ? saveCreate : saveEdit}
                 disabled={saving}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-50"
+                className="min-h-[44px] rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-50"
               >
                 {saving ? "Saving…" : creating ? "Create" : "Save"}
               </button>

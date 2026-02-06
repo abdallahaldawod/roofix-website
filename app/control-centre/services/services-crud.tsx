@@ -84,10 +84,15 @@ export default function ServicesCrud() {
     const el = iconPickerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    const maxW = typeof window !== "undefined" ? Math.min(360, window.innerWidth - 32) : 360;
+    const width = Math.min(Math.max(320, rect.width), maxW);
+    const left = typeof window !== "undefined"
+      ? Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+      : rect.left;
     setIconPickerPosition({
       top: rect.bottom + 8,
-      left: rect.left,
-      width: Math.max(320, rect.width),
+      left,
+      width,
     });
   }
 
@@ -237,12 +242,12 @@ export default function ServicesCrud() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold text-neutral-900">Manage services in Firestore</h2>
         <button
           type="button"
           onClick={openCreate}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+          className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover sm:w-auto"
         >
           <Plus className="h-4 w-4" /> Add service
         </button>
@@ -251,14 +256,14 @@ export default function ServicesCrud() {
       {loading ? (
         <p className="mt-4 text-neutral-500">Loading…</p>
       ) : (
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-3 sm:space-y-4">
           {services.map((s) => (
             <div
               key={s.id}
-              className={`flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${s.active === false ? "opacity-70" : ""}`}
+              className={`flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4 ${s.active === false ? "opacity-70" : ""}`}
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-neutral-900">{s.title}</p>
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.active !== false ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200 text-neutral-600"}`}
@@ -268,11 +273,11 @@ export default function ServicesCrud() {
                 </div>
                 <p className="text-sm text-neutral-500">/{s.slug}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => toggleActive(s)}
-                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  className="min-h-[40px] rounded-lg px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                   title={s.active !== false ? "Set inactive" : "Set active"}
                 >
                   {s.active !== false ? "Set inactive" : "Set active"}
@@ -280,7 +285,7 @@ export default function ServicesCrud() {
                 <button
                   type="button"
                   onClick={() => openEdit(s)}
-                  className="rounded-lg p-2 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                   aria-label="Edit"
                 >
                   <Pencil className="h-4 w-4" />
@@ -288,7 +293,7 @@ export default function ServicesCrud() {
                 <button
                   type="button"
                   onClick={() => openDeleteConfirm(s)}
-                  className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50"
                   aria-label="Delete"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -346,10 +351,10 @@ export default function ServicesCrud() {
         )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
           <div
             ref={modalContentRef}
-            className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-lg"
+            className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-t-xl bg-white p-4 shadow-lg sm:rounded-xl sm:p-6"
           >
             <h3 className="text-lg font-semibold text-neutral-900">
               {creating ? "New service" : "Edit service"}
@@ -419,18 +424,18 @@ export default function ServicesCrud() {
                 />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => { setCreating(false); setEditing(null); }}
-                className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                className="min-h-[44px] rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={creating ? saveCreate : saveEdit}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+                className="min-h-[44px] rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
               >
                 {creating ? "Create" : "Save"}
               </button>

@@ -136,37 +136,37 @@ export default function ControlCentreTestimonialsPage() {
   const showForm = creating || editing;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-neutral-900">Testimonials</h1>
-      <p className="mt-1 text-neutral-600">Changes here are saved to Firestore and appear on the public website.</p>
-      <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+    <div className="min-w-0">
+      <h1 className="text-xl font-bold text-neutral-900 sm:text-2xl">Testimonials</h1>
+      <p className="mt-1 text-sm text-neutral-600 sm:text-base">Changes here are saved to Firestore and appear on the public website.</p>
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 sm:mt-6">
         <button
           type="button"
           onClick={openCreate}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
         >
           <Plus className="h-4 w-4" /> Add testimonial
         </button>
       </div>
 
       {loading ? (
-        <p className="mt-6 text-neutral-500">Loading…</p>
+        <p className="mt-4 text-neutral-500 sm:mt-6">Loading…</p>
       ) : (
-        <div className="mt-6 space-y-4">
+        <div className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
           {testimonials.map((t) => (
             <div
               key={t.id}
-              className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-4 shadow-sm"
+              className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4"
             >
               <div className="min-w-0 flex-1">
                 <p className="text-neutral-900">&ldquo;{t.quote.slice(0, 80)}{t.quote.length > 80 ? "…" : ""}&rdquo;</p>
                 <p className="mt-1 text-sm text-neutral-500">— {t.author}{t.location ? `, ${t.location}` : ""}</p>
               </div>
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 gap-2 self-end sm:self-center">
                 <button
                   type="button"
                   onClick={() => openEdit(t)}
-                  className="rounded-lg p-2 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                   aria-label="Edit"
                 >
                   <Pencil className="h-4 w-4" />
@@ -174,7 +174,7 @@ export default function ControlCentreTestimonialsPage() {
                 <button
                   type="button"
                   onClick={() => remove(t.id)}
-                  className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50"
                   aria-label="Delete"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -189,8 +189,8 @@ export default function ControlCentreTestimonialsPage() {
       )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 shadow-lg sm:rounded-xl sm:p-6">
             <h2 className="text-lg font-semibold text-neutral-900">
               {creating ? "New testimonial" : "Edit testimonial"}
             </h2>
@@ -235,18 +235,18 @@ export default function ControlCentreTestimonialsPage() {
                 />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => { setCreating(false); setEditing(null); }}
-                className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                className="min-h-[44px] rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={creating ? saveCreate : saveEdit}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+                className="min-h-[44px] rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
               >
                 {creating ? "Create" : "Save"}
               </button>

@@ -26,7 +26,7 @@ function LoginForm() {
       const auth = getFirebaseAuth();
       await setPersistence(auth, browserSessionPersistence);
       await signInWithEmailAndPassword(auth, email, password);
-      router.replace(base || "/");
+      router.replace(base || "/home");
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed.";
@@ -41,8 +41,8 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-100 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-neutral-100 px-4 py-6">
+      <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
         <h1 className="text-xl font-semibold text-neutral-900">Control Centre</h1>
         <p className="mt-1 text-sm text-neutral-500">Sign in to manage content.</p>
 
@@ -97,13 +97,16 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-accent py-2.5 font-medium text-neutral-900 transition-colors hover:bg-accent-hover disabled:opacity-50"
+            className="w-full min-h-[44px] rounded-lg bg-accent py-3 font-medium text-neutral-900 transition-colors hover:bg-accent-hover disabled:opacity-50 sm:py-2.5"
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </div>
-      <Link href="/" className="mt-6 text-sm text-neutral-500 hover:text-neutral-700">
+      <Link
+        href="/home"
+        className="mt-6 inline-block min-h-[44px] py-2 text-sm text-neutral-500 hover:text-neutral-700"
+      >
         ← Back to site
       </Link>
     </div>

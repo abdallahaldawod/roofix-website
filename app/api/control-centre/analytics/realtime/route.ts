@@ -1,9 +1,30 @@
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
-import { fetchGa4RealtimeActiveUsers, type RealtimeRange } from "@/lib/ga4-data";
+import { fetchGa4RealtimeActiveUsers, type Ga4RealtimeResult, type RealtimeRange } from "@/lib/ga4-data";
 import { NextRequest, NextResponse } from "next/server";
 
 const NUMERIC_PROPERTY_ID = /^\d+$/;
 const RANGE_VALUES: RealtimeRange[] = ["1m", "5m", "30m"];
+
+/** Server-side cache: one entry per propertyId:range. Reduces GA4 API calls when client polls often. */
+const REALTIME_CACHE_TTL_MS = 18_000; // 18s – client can poll every 20s and we hit GA4 at most once per 20s
+const realtimeCache = new Map<
+  string,
+  { result: Ga4RealtimeResult; expiresAt: number }
+>();
+
+function getCachedRealtime(propertyId: string, range: RealtimeRange): Ga4RealtimeResult | null {
+  const key = `${propertyId}:${range}`;
+  const entry = realtimeCache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) return null;
+  return entry.result;
+}
+
+function setCachedRealtime(propertyId: string, range: RealtimeRange, result: Ga4RealtimeResult) {
+  realtimeCache.set(`${propertyId}:${range}`, {
+    result,
+    expiresAt: Date.now() + REALTIME_CACHE_TTL_MS,
+  });
+}
 
 const ALLOWED_ORIGINS = [
   "https://admin.roofix.com.au",
@@ -55,7 +76,11 @@ export async function GET(request: NextRequest) {
   const rangeParam = request.nextUrl.searchParams.get("range") ?? "30m";
   const range: RealtimeRange = RANGE_VALUES.includes(rangeParam as RealtimeRange) ? (rangeParam as RealtimeRange) : "30m";
 
-  const result = await fetchGa4RealtimeActiveUsers(rawPropertyId, range);
+  let result = getCachedRealtime(rawPropertyId, range);
+  if (result === null) {
+    result = await fetchGa4RealtimeActiveUsers(rawPropertyId, range);
+    if (result.ok) setCachedRealtime(rawPropertyId, range, result);
+  }
 
   if (!result.ok) {
     const res = NextResponse.json(

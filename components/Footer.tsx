@@ -20,7 +20,7 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
         <div className="grid grid-cols-2 gap-8 lg:grid-cols-3">
           <div className="col-span-2 lg:col-span-1">
-            <Link href="/" className="inline-block">
+            <Link href="/home" className="inline-block">
               <Image
                 src="/logo-light.png"
                 alt="Roofix - Roofing & Gutters"

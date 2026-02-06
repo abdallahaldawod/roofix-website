@@ -34,7 +34,7 @@ export default function NotFound() {
         </p>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <CTAButton href="/" label="Go to homepage" />
+          <CTAButton href="/home" label="Go to homepage" />
           <QuoteLink
             href="/contact"
             location="not_found"
