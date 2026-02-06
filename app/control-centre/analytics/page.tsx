@@ -181,10 +181,20 @@ export default function AnalyticsPage() {
         setLiveActiveUsers(json.activeUsers);
         setLiveError(null);
       } else {
-        setLiveError(json.error ?? "Failed to load");
+        const err = json.error ?? "Failed to load";
+        setLiveError(
+          err.includes("RESOURCE_EXHAUSTED") || err.includes("Exhausted")
+            ? "GA4 quota used for this hour. Count will return within an hour."
+            : err
+        );
       }
     } catch (e) {
-      setLiveError(e instanceof Error ? e.message : "Failed to load");
+      const msg = e instanceof Error ? e.message : "Failed to load";
+      setLiveError(
+        msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Exhausted")
+          ? "GA4 quota used for this hour. Count will return within an hour."
+          : msg
+      );
     } finally {
       setLiveLoading(false);
     }
@@ -201,7 +211,7 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     fetchLiveActiveUsers();
-    const interval = setInterval(fetchLiveActiveUsers, 1000);
+    const interval = setInterval(fetchLiveActiveUsers, 45 * 1000);
     return () => clearInterval(interval);
   }, [fetchLiveActiveUsers]);
 
@@ -293,15 +303,17 @@ export default function AnalyticsPage() {
                 {liveLoading ? (
                   <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
                 ) : liveError ? (
-                  <p className="text-sm text-amber-700">{liveError}</p>
+                  <p className="text-sm text-amber-700" title={liveError}>
+                    {liveError}
+                  </p>
                 ) : (
-                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Active users on roofix.com.au (excludes admin) in the current minute">
+                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Active in the current minute (drops when users leave)">
                     {liveActiveUsers != null ? liveActiveUsers.toLocaleString() : "—"}
                   </p>
                 )}
               </div>
               <p className="mt-0.5 text-xs text-neutral-500">
-                roofix.com.au only (excludes admin) · updates every second
+                roofix.com.au only · current minute · updates every 45s
               </p>
             </div>
           </div>

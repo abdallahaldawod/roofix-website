@@ -241,8 +241,9 @@ export type Ga4RealtimeResult =
   | { ok: false; error: string; ga4Code?: string; ga4Message?: string };
 
 /**
- * Fetches active users in the current minute only ("active right now"). Uses runRealtimeReport
- * with dimension minutesAgo and takes only the row for "0" (current minute).
+ * Fetches active users in the current minute only (GA4 realtime). Uses runRealtimeReport
+ * with dimension minutesAgo; only row "0" (current minute) is counted so the number drops
+ * when users close the site (within ~1 minute). Excludes admin when GA4_MAIN_STREAM_ID is set.
  */
 export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<Ga4RealtimeResult> {
   const client = getGa4Client();
@@ -257,7 +258,7 @@ export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<G
   const property = `properties/${propertyId}`;
   const mainStreamId = process.env.GA4_MAIN_STREAM_ID?.trim();
   if (process.env.NODE_ENV === "development") {
-    console.info("[GA4 Realtime] property:", property, "scope: current minute only", mainStreamId ? "streamId=" + mainStreamId : "");
+    console.info("[GA4 Realtime] property:", property, "current minute only", mainStreamId ? "streamId=" + mainStreamId : "");
   }
 
   try {
@@ -276,7 +277,6 @@ export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<G
     }
     const [response] = await client.runRealtimeReport(request);
 
-    // minutesAgo "0" = current minute; "1" = previous minute, etc. We only want "0" = active right now.
     const rows = (response.rows ?? []) as Array<{
       dimensionValues?: Array<{ value?: string }>;
       metricValues?: Array<{ value?: string }> | null;
