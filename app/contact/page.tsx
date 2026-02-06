@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import ContactForm from "@/components/ContactForm";
+import TrackedPhoneLink from "@/components/TrackedPhoneLink";
 import { getServices } from "@/lib/data";
 
 export const metadata: Metadata = {
@@ -62,8 +63,9 @@ export default async function ContactPage() {
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
                   Contact
                 </h3>
-                <a
+                <TrackedPhoneLink
                   href={`tel:${PHONE.replace(/\s/g, "")}`}
+                  location="contact_page"
                   className="flex min-h-[44px] items-center gap-3 rounded-lg py-2 pr-3 text-neutral-700 font-semibold hover:text-accent active:bg-neutral-100"
                 >
                   <span className="text-accent shrink-0" aria-hidden="true">
@@ -72,7 +74,7 @@ export default async function ContactPage() {
                     </svg>
                   </span>
                   {PHONE}
-                </a>
+                </TrackedPhoneLink>
                 <a
                   href={`mailto:${EMAIL}`}
                   className="flex min-h-[44px] items-center gap-3 rounded-lg py-2 pr-3 text-neutral-700 font-semibold hover:text-accent active:bg-neutral-100"

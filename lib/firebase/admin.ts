@@ -9,6 +9,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { getApps, initializeApp, cert, type ServiceAccount } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 /** Firebase Console JSON uses snake_case; cert() requires camelCase. */
@@ -84,6 +85,10 @@ function getAdminApp() {
     ...credential,
     ...(databaseURL ? { databaseURL } : {}),
   });
+}
+
+export function getAdminAuth() {
+  return getAuth(getAdminApp());
 }
 
 /** Returns null if Firebase Admin is misconfigured so the data layer can return [] instead of throwing (avoids 500 in production). */

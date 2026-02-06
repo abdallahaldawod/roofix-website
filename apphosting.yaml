@@ -56,3 +56,12 @@ env:
   - variable: NEXT_PUBLIC_ADMIN_HOST
     value: "admin.roofix.com.au"
     availability: [BUILD, RUNTIME]
+
+  # --- Public site: GA4. Control-centre /analytics uses custom dashboard (GA4 Data API). ---
+  - variable: NEXT_PUBLIC_GA4_ID
+    value: "G-BXHK1W0M5L"
+    availability: [BUILD, RUNTIME]
+  # Numeric GA4 Property ID for /control-centre/analytics. GA4 Admin → Property settings. Service account must have Viewer access; enable Google Analytics Data API.
+  - variable: GA4_PROPERTY_ID
+    value: "490255441"
+    availability: [RUNTIME]

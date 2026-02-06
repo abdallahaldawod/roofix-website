@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import TrackedPhoneLink from "./TrackedPhoneLink";
 
 const PHONE = "0497 777 755";
 const EMAIL = "info@roofix.com.au";
@@ -39,12 +40,13 @@ export default function Footer() {
             </h3>
             <ul className="mt-3 space-y-1 text-sm">
               <li>
-                <a
+                <TrackedPhoneLink
                   href={`tel:${PHONE.replace(/\s/g, "")}`}
+                  location="footer"
                   className="flex min-h-[44px] items-center hover:text-accent-muted py-1 -my-1"
                 >
                   {PHONE}
-                </a>
+                </TrackedPhoneLink>
               </li>
               <li>
                 <a

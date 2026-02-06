@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Wrench,
   MessageSquare,
+  BarChart3,
   LogOut,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const nav = [
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/services", label: "Services", icon: Wrench },
   { path: "/testimonials", label: "Testimonials", icon: MessageSquare },
+  { path: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
 const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes

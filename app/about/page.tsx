@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import CTAButton from "@/components/CTAButton";
-import Link from "next/link";
+import TrackedPhoneLink from "@/components/TrackedPhoneLink";
 
 export const metadata: Metadata = {
   title: "Roofix - Roofing & Gutters",
@@ -94,13 +94,14 @@ export default function AboutPage() {
             Get a free quote or give us a call to discuss your project.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-            <CTAButton href="/contact" label="Get a free quote" />
-            <Link
+            <CTAButton href="/contact" label="Get a free quote" trackQuoteLocation="about" />
+            <TrackedPhoneLink
               href="tel:0497777755"
+              location="about"
               className="inline-flex items-center justify-center rounded-lg border-2 border-accent px-5 py-2.5 text-sm font-semibold text-accent hover:bg-accent-light"
             >
               Call 0497 777 755
-            </Link>
+            </TrackedPhoneLink>
           </div>
         </div>
       </section>

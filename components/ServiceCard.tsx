@@ -1,48 +1,34 @@
 import Link from "next/link";
-import {
-  HousePlus,
-  RefreshCw,
-  Sparkles,
-  Droplets,
-  Wrench,
-  ClipboardCheck,
-  Settings,
-  AlertCircle,
-  Building2,
-  Home,
-  type LucideIcon,
-} from "lucide-react";
+import { AppIcon } from "@/components/ui/AppIcon";
+import { getServiceIconifyName } from "@/lib/service-icons";
+import type { ServiceIcon } from "@/lib/firestore-types";
 
 type ServiceCardProps = {
   title: string;
   description: string;
   href?: string | null;
-  /** When provided, uses Lucide icon for this service slug. */
+  /** When provided, overrides icon with a slug-specific Iconify name. */
   slug?: string;
-  /** Firestore icon name (roof, gutter, repair, etc.); used when slug has no mapping. */
-  icon?: string;
+  /** Firestore icon (roof, gutter, repair, etc.); used when slug has no override. */
+  icon?: ServiceIcon | string;
 };
 
-const SLUG_ICON_MAP: Record<string, LucideIcon> = {
-  "new-roof": HousePlus,
-  "re-roof": RefreshCw,
-  "roof-restoration": Sparkles,
-  gutters: Droplets,
-  repairs: Wrench,
-  inspections: ClipboardCheck,
+const SLUG_ICON_OVERRIDE: Record<string, string> = {
+  "new-roof": "lucide:house-plus",
+  "re-roof": "lucide:refresh-cw",
+  "roof-restoration": "lucide:sparkles",
+  gutters: "lucide:droplets",
+  repairs: "lucide:wrench",
+  inspections: "lucide:clipboard-check",
 };
 
-const NAME_ICON_MAP: Record<string, LucideIcon> = {
-  roof: Home,
-  gutter: Droplets,
-  repair: Wrench,
-  inspection: ClipboardCheck,
-  maintenance: Settings,
-  emergency: AlertCircle,
-  strata: Building2,
-};
+const DEFAULT_ICONIFY = "lucide:house-plus";
 
-const DEFAULT_ICON = HousePlus;
+function getIconifyName(slug?: string, icon?: ServiceIcon | string): string {
+  if (slug && SLUG_ICON_OVERRIDE[slug]) return SLUG_ICON_OVERRIDE[slug];
+  if (icon && typeof icon === "string") return getServiceIconifyName(icon);
+  return DEFAULT_ICONIFY;
+}
 
 export default function ServiceCard({
   title,
@@ -52,15 +38,12 @@ export default function ServiceCard({
   icon,
 }: ServiceCardProps) {
   const showLearnMore = typeof href === "string" && href.length > 0;
-  const IconComponent =
-    (slug && SLUG_ICON_MAP[slug]) ||
-    (icon && NAME_ICON_MAP[icon]) ||
-    DEFAULT_ICON;
+  const iconifyName = getIconifyName(slug, icon);
 
   const content = (
     <>
       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-accent shadow-sm transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md">
-        <IconComponent className="h-6 w-6" strokeWidth={2} />
+        <AppIcon name={iconifyName} size={24} className="text-accent" />
       </div>
       <h3 className="text-lg font-semibold text-neutral-900">{title}</h3>
       <p className="text-sm text-neutral-600">{description}</p>

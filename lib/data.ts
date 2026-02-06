@@ -12,6 +12,16 @@ import type { Project, Service, Testimonial } from "@/lib/firestore-types";
 const PROJECTS_COLLECTION = "projects";
 const SERVICES_COLLECTION = "services";
 const TESTIMONIALS_COLLECTION = "testimonials";
+const CONFIG_COLLECTION = "config";
+const PROJECT_FILTERS_DOC = "projectFilters";
+
+export type ProjectFilterCategory = { value: string; label: string };
+
+const DEFAULT_PROJECT_FILTER_CATEGORIES: ProjectFilterCategory[] = [
+  { value: "roofing", label: "Roofing" },
+  { value: "gutters", label: "Gutters" },
+  { value: "repairs", label: "Repairs" },
+];
 
 /** In-memory TTL cache: avoid hitting Firestore on every request. */
 const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -62,11 +72,43 @@ async function getCollectionWithMemoryCache<T>(collectionId: string): Promise<T[
   return data;
 }
 
+async function getProjectFilterCategoriesUncached(): Promise<ProjectFilterCategory[]> {
+  if (!isFirebaseAdminConfigured()) return DEFAULT_PROJECT_FILTER_CATEGORIES;
+  try {
+    const db = getAdminFirestore();
+    if (!db) return DEFAULT_PROJECT_FILTER_CATEGORIES;
+    const snap = await db.collection(CONFIG_COLLECTION).doc(PROJECT_FILTERS_DOC).get();
+    const data = snap.data();
+    const categories = data?.categories;
+    if (!Array.isArray(categories) || categories.length === 0)
+      return DEFAULT_PROJECT_FILTER_CATEGORIES;
+    return categories
+      .filter((c: unknown) => c && typeof c === "object" && "value" in c && "label" in c)
+      .map((c: { value: string; label: string }) => ({ value: String(c.value), label: String(c.label) }));
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("[data] config/projectFilters read failed", err);
+    }
+    return DEFAULT_PROJECT_FILTER_CATEGORIES;
+  }
+}
+
 /** Cached per request so generateMetadata + page share one read per collection. */
 async function getCollectionImpl<T>(collectionId: string): Promise<T[]> {
   return getCollectionWithMemoryCache<T>(collectionId);
 }
 const getCollection = cache(getCollectionImpl);
+
+const CONFIG_CACHE_KEY = `${CONFIG_COLLECTION}/${PROJECT_FILTERS_DOC}`;
+
+async function getProjectFilterCategoriesCached(): Promise<ProjectFilterCategory[]> {
+  const now = Date.now();
+  const entry = memoryCache.get(CONFIG_CACHE_KEY);
+  if (entry && entry.expires > now) return entry.data as ProjectFilterCategory[];
+  const data = await getProjectFilterCategoriesUncached();
+  memoryCache.set(CONFIG_CACHE_KEY, { data, expires: now + MEMORY_CACHE_TTL_MS });
+  return data;
+}
 
 export const getProjects = cache(async (): Promise<Project[]> => {
   try {
@@ -121,3 +163,6 @@ export async function getAllServiceSlugs(): Promise<string[]> {
   const services = await getServices();
   return services.map((s) => s.slug);
 }
+
+/** Project filter tabs shown on /projects (All + category labels). From Firestore config/projectFilters; same cache as other content. */
+export const getProjectFilterCategories = cache(getProjectFilterCategoriesCached);

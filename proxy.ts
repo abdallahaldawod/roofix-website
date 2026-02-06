@@ -32,7 +32,7 @@ function withNoindex(res: NextResponse): NextResponse {
   return res;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const canonicalRedirect = redirectToCanonicalHost(request);
   if (canonicalRedirect) return canonicalRedirect;
 
@@ -79,6 +79,7 @@ export function middleware(request: NextRequest) {
       pathname === "/projects" ||
       pathname === "/services" ||
       pathname === "/testimonials" ||
+      pathname === "/analytics" ||
       pathname.startsWith("/projects/") ||
       pathname.startsWith("/services/")
     ) {
@@ -94,7 +95,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Explicit paths so middleware runs for www redirect + control-centre rewrites (path-to-regexp doesn't allow lookaheads)
+  // Explicit paths so proxy runs for www redirect + control-centre rewrites (path-to-regexp doesn't allow lookaheads)
   matcher: [
     "/",
     "/about",
@@ -107,5 +108,6 @@ export const config = {
     "/services",
     "/services/:path*",
     "/testimonials",
+    "/analytics",
   ],
 };

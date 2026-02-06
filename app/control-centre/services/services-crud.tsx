@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   collection,
@@ -14,34 +14,14 @@ import {
 import { getFirestoreDb } from "@/lib/firebase/client";
 import type { Service, ServiceIcon } from "@/lib/firestore-types";
 import { refreshPublicSiteCache } from "../actions";
+import { Plus, Pencil, Trash2, ChevronDown } from "lucide-react";
+import { AppIcon } from "@/components/ui/AppIcon";
 import {
-  Plus,
-  Pencil,
-  Trash2,
-  Home,
-  Droplets,
-  Wrench,
-  ClipboardCheck,
-  Settings,
-  AlertCircle,
-  Building2,
-  type LucideIcon,
-} from "lucide-react";
+  SERVICE_ICON_OPTIONS,
+  getServiceIconifyName,
+} from "@/lib/service-icons";
 
 const SERVICES_COLLECTION = "services";
-const ICON_MAP: Record<ServiceIcon, { label: string; Icon: LucideIcon }> = {
-  roof: { label: "Roof", Icon: Home },
-  gutter: { label: "Gutter", Icon: Droplets },
-  repair: { label: "Repair", Icon: Wrench },
-  inspection: { label: "Inspection", Icon: ClipboardCheck },
-  maintenance: { label: "Maintenance", Icon: Settings },
-  emergency: { label: "Emergency", Icon: AlertCircle },
-  strata: { label: "Strata", Icon: Building2 },
-};
-const ICONS = Object.entries(ICON_MAP).map(([value, { label }]) => ({
-  value: value as ServiceIcon,
-  label,
-}));
 
 function toService(docId: string, data: Record<string, unknown>): Service & { id: string } {
   return {
@@ -70,6 +50,15 @@ export default function ServicesCrud() {
     active: true,
   });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconPickerPosition, setIconPickerPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  const iconPickerRef = useRef<HTMLDivElement>(null);
+  const iconPickerDropdownRef = useRef<HTMLDivElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
 
   async function load() {
     setLoading(true);
@@ -91,10 +80,53 @@ export default function ServicesCrud() {
     load();
   }, []);
 
+  function measureIconPickerPosition() {
+    const el = iconPickerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setIconPickerPosition({
+      top: rect.bottom + 8,
+      left: rect.left,
+      width: Math.max(320, rect.width),
+    });
+  }
+
+  useEffect(() => {
+    if (!iconPickerOpen) {
+      setIconPickerPosition(null);
+      return;
+    }
+    measureIconPickerPosition();
+    const scrollEl = modalContentRef.current ?? document.documentElement;
+    const handleScrollOrResize = () => measureIconPickerPosition();
+    window.addEventListener("resize", handleScrollOrResize);
+    scrollEl.addEventListener("scroll", handleScrollOrResize, true);
+    return () => {
+      window.removeEventListener("resize", handleScrollOrResize);
+      scrollEl.removeEventListener("scroll", handleScrollOrResize, true);
+    };
+  }, [iconPickerOpen]);
+
+  useEffect(() => {
+    if (!iconPickerOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        iconPickerRef.current?.contains(target) ||
+        iconPickerDropdownRef.current?.contains(target)
+      )
+        return;
+      setIconPickerOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [iconPickerOpen]);
+
   function openCreate() {
     setCreating(true);
     setEditing(null);
     setDeleteConfirm(null);
+    setIconPickerOpen(false);
     setForm({
       slug: "",
       title: "",
@@ -109,6 +141,7 @@ export default function ServicesCrud() {
     setEditing(s.id);
     setCreating(false);
     setDeleteConfirm(null);
+    setIconPickerOpen(false);
     setForm({
       slug: s.slug,
       title: s.title,
@@ -314,7 +347,10 @@ export default function ServicesCrud() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-lg">
+          <div
+            ref={modalContentRef}
+            className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-lg"
+          >
             <h3 className="text-lg font-semibold text-neutral-900">
               {creating ? "New service" : "Edit service"}
             </h3>
@@ -347,24 +383,30 @@ export default function ServicesCrud() {
                   className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900"
                 />
               </div>
-              <div>
+              <div ref={iconPickerRef} className="relative">
                 <label className="block text-sm font-medium text-neutral-700">Icon</label>
                 <div className="mt-1 flex items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-neutral-300 bg-neutral-50 text-accent" aria-hidden>
-                    {(() => {
-                      const { Icon } = ICON_MAP[form.icon ?? "roof"];
-                      return <Icon className="h-5 w-5" />;
-                    })()}
-                  </span>
-                  <select
-                    value={form.icon ?? "roof"}
-                    onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value as ServiceIcon }))}
-                    className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900"
+                  <button
+                    type="button"
+                    onClick={() => setIconPickerOpen((v) => !v)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-neutral-300 bg-neutral-50 text-accent transition-colors hover:border-neutral-400 hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
+                    aria-label="Choose icon"
+                    aria-expanded={iconPickerOpen}
+                    aria-haspopup="listbox"
                   >
-                    {ICONS.map((i) => (
-                      <option key={i.value} value={i.value}>{i.label}</option>
-                    ))}
-                  </select>
+                    <AppIcon
+                      name={getServiceIconifyName((form.icon ?? "roof") as ServiceIcon)}
+                      size={20}
+                      className="text-accent"
+                    />
+                  </button>
+                  <span className="text-sm text-neutral-600">
+                    {SERVICE_ICON_OPTIONS.find((o) => o.value === (form.icon ?? "roof"))?.label ?? "Roof"}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform ${iconPickerOpen ? "rotate-180" : ""}`}
+                    aria-hidden
+                  />
                 </div>
               </div>
               <div>
@@ -396,6 +438,48 @@ export default function ServicesCrud() {
           </div>
         </div>
       )}
+
+      {iconPickerOpen &&
+        iconPickerPosition &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={iconPickerDropdownRef}
+            role="listbox"
+            aria-label="Icon library"
+            className="fixed z-[100] max-h-[min(85vh,560px)] overflow-y-auto rounded-xl border border-neutral-200 bg-white p-3 shadow-lg"
+            style={{
+              top: iconPickerPosition.top,
+              left: iconPickerPosition.left,
+              width: iconPickerPosition.width,
+            }}
+          >
+            <div className="grid grid-cols-5 gap-2 sm:grid-cols-6">
+              {SERVICE_ICON_OPTIONS.map(({ value, label, iconifyName }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="option"
+                  aria-selected={form.icon === value}
+                  onClick={() => {
+                    setForm((f) => ({ ...f, icon: value }));
+                    setIconPickerOpen(false);
+                  }}
+                  className={`flex flex-col items-center gap-1 rounded-lg border p-2.5 transition-colors hover:bg-neutral-50 ${
+                    form.icon === value
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-transparent text-neutral-600"
+                  }`}
+                  title={label}
+                >
+                  <AppIcon name={iconifyName} size={24} className="shrink-0" />
+                  <span className="text-xs font-medium leading-tight">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

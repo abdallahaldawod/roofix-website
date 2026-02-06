@@ -74,6 +74,14 @@ storage.rules                # Read all; write if request.auth != null (content/
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+### Cursor IDE: “params/searchParams are being enumerated” console errors
+
+In Next.js 15+, `params` and `searchParams` are Promises. Cursor’s component inspector (on click/hover) serializes React props and can call `Object.keys()` on those Promises, which triggers Next’s sync-dynamic-apis error. **This is not a bug in the app:** all route code correctly `await`s `params`/`searchParams` before use. To reduce the noise you can:
+
+- Ignore the console error (the app behaves correctly), or
+- Turn off Cursor’s “click to show component” / DOM inspector for this project, or
+- Report to Cursor that serializing page props should not enumerate Promise values (see [Next.js sync-dynamic-apis](https://nextjs.org/docs/messages/sync-dynamic-apis)).
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

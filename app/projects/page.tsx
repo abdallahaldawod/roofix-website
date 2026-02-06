@@ -1,11 +1,14 @@
-import { getProjects } from "@/lib/data";
+import { getProjects, getProjectFilterCategories } from "@/lib/data";
 import ProjectsSection from "@/components/ProjectsSection";
 import { DEFAULT_PROJECTS } from "@/lib/default-projects";
 
 export const revalidate = 300;
 
 export default async function ProjectsPage() {
-  const list = await getProjects();
+  const [list, filterCategories] = await Promise.all([
+    getProjects(),
+    getProjectFilterCategories(),
+  ]);
   const projects = list.length > 0
     ? list.map((p) => ({
         id: p.id ?? "",
@@ -38,7 +41,11 @@ export default async function ProjectsPage() {
 
       <section className="bg-neutral-50 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-7xl">
-          <ProjectsSection projects={projects} showFilter />
+          <ProjectsSection
+            projects={projects}
+            showFilter
+            filterCategories={filterCategories}
+          />
         </div>
       </section>
     </>

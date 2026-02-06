@@ -1,5 +1,5 @@
-import Link from "next/link";
 import CTAButton from "@/components/CTAButton";
+import QuoteLink from "@/components/QuoteLink";
 
 export default function NotFound() {
   return (
@@ -35,12 +35,13 @@ export default function NotFound() {
 
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <CTAButton href="/" label="Go to homepage" />
-          <Link
+          <QuoteLink
             href="/contact"
+            location="not_found"
             className="inline-flex min-h-[44px] items-center justify-center rounded-lg px-5 py-3 text-sm font-semibold text-neutral-700 transition-colors hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2"
           >
             Contact / Get a quote
-          </Link>
+          </QuoteLink>
         </div>
       </div>
     </section>

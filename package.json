@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3100",
+    "dev:webpack": "next dev -p 3100 --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -11,6 +12,8 @@
     "deploy:rules": "npx firebase-tools deploy --only firestore,storage"
   },
   "dependencies": {
+    "@google-analytics/data": "^5.2.1",
+    "@iconify/react": "^6.0.2",
     "dotenv": "^17.2.3",
     "firebase": "^12.8.0",
     "firebase-admin": "^13.6.1",
@@ -18,6 +21,7 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "recharts": "^3.7.0",
     "resend": "^6.9.1"
   },
   "devDependencies": {

@@ -9,6 +9,7 @@ const BASE_URL = "https://roofix.com.au";
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export const revalidate = 300;
@@ -58,25 +59,24 @@ function normalizeContent(raw: unknown): string[] {
   return [];
 }
 
-export default async function ServicePage({ params }: Props) {
+/** Resolved props only — avoids dev tools enumerating Promise params/searchParams. */
+async function ServicePageContent({ slug }: { slug: string }) {
+  const service = await getServiceBySlug(slug);
+  if (!service) notFound();
+
+  const title = typeof service.title === "string" ? service.title : "Service";
+  const description = typeof service.description === "string" ? service.description : "";
+  const content = normalizeContent(service.content);
+
+  let otherServices: Awaited<ReturnType<typeof getServices>> = [];
   try {
-    const { slug } = await params;
-    const service = await getServiceBySlug(slug);
-    if (!service) notFound();
+    const allServices = await getServices();
+    otherServices = allServices.filter((s) => s.slug !== slug);
+  } catch {
+    otherServices = [];
+  }
 
-    const title = typeof service.title === "string" ? service.title : "Service";
-    const description = typeof service.description === "string" ? service.description : "";
-    const content = normalizeContent(service.content);
-
-    let otherServices: Awaited<ReturnType<typeof getServices>> = [];
-    try {
-      const allServices = await getServices();
-      otherServices = allServices.filter((s) => s.slug !== slug);
-    } catch {
-      otherServices = [];
-    }
-
-    return (
+  return (
     <>
       <section className="bg-neutral-900 px-4 py-16 text-white sm:px-6 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
@@ -97,7 +97,7 @@ export default async function ServicePage({ params }: Props) {
             ))}
           </div>
           <div className="mt-10">
-            <CTAButton href="/contact" label="Get a free quote" />
+            <CTAButton href="/contact" label="Get a free quote" trackQuoteLocation="service_detail" />
           </div>
         </div>
       </section>
@@ -131,6 +131,13 @@ export default async function ServicePage({ params }: Props) {
       </section>
     </>
   );
+}
+
+/* @next-codemod-ignore - params awaited immediately; enumeration may come from dev tooling (e.g. component inspector). */
+export default async function ServicePage(props: Props) {
+  const { slug } = await props.params;
+  try {
+    return <ServicePageContent slug={slug} />;
   } catch (e) {
     unstable_rethrow(e);
     if (process.env.NODE_ENV === "development") console.error("[ServicePage]", e);

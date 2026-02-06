@@ -6,6 +6,8 @@ import CustomSelect from "@/components/CustomSelect";
 import FieldError from "@/components/FieldError";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { submitContactForm } from "@/app/contact/actions";
+import { trackLeadSubmit } from "@/lib/analytics/ga4";
+import TrackedPhoneLink from "@/components/TrackedPhoneLink";
 
 const DEFAULT_SERVICE_OPTIONS = [
   "New Roof",
@@ -73,6 +75,10 @@ export default function ContactForm(props?: ContactFormProps) {
   }, [state.fieldErrors]);
 
   useEffect(() => {
+    if (state.success) trackLeadSubmit();
+  }, [state.success]);
+
+  useEffect(() => {
     if (state.formData) {
       setName(state.formData.name);
       setEmail(state.formData.email);
@@ -116,9 +122,9 @@ export default function ContactForm(props?: ContactFormProps) {
           </p>
           <p className="mt-1.5 text-xs text-neutral-500">
             Need a quicker response? Call us on{" "}
-            <a href="tel:0497777755" className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">
+            <TrackedPhoneLink href="tel:0497777755" location="contact_success" className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">
               0497 777 755
-            </a>
+            </TrackedPhoneLink>
             .
           </p>
         </div>

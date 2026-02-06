@@ -31,15 +31,27 @@ This applies:
 - **Firestore:** public read; create/update/delete only for signed-in admins (`users/{uid}.role == "admin"`).
 - **Storage:** `content/**` public read; write only when signed in (control-centre uploads).
 
-## 3. (Optional) Adjust production env in `apphosting.yaml`
+## 3. GA4: public site + control-centre Analytics
+
+- **`NEXT_PUBLIC_GA4_ID`** (e.g. `G-XXXX`): Measurement ID for the **public site**. Enables page views and conversion events (lead_submit, call_click, quote_click). Safe to expose.
+- **`GA4_PROPERTY_ID`** (numeric): Used by the **control-centre Analytics** page (`/control-centre/analytics`) to fetch metrics via the Google Analytics Data API and show a custom dashboard (summary cards + trend chart). Set in `apphosting.yaml` or env; keep the value private (server-only).
+  - **Setup:** In [Google Cloud Console](https://console.cloud.google.com/) (same project as Firebase), enable **Google Analytics Data API**. In GA4 → Admin → Property → **Property access management**, add your **Firebase service account** email (from the key JSON) as a **Viewer**. The Property ID is in GA4 Admin → Property settings (numeric, e.g. `123456789`).
+
+## 4. (Optional) Adjust production env in `apphosting.yaml`
 
 - `CONTACT_FORM_TO_EMAIL` and `CONTACT_FORM_FROM_EMAIL` are set for Roofix; change if needed.
 - `FIREBASE_PROJECT_ID` and the `NEXT_PUBLIC_FIREBASE_*` value entries are set for `roofix-768a5`. If you use another project, update them (and create secrets for any you switch to secret).
 
-## 4. Deploy the app
+## 5. Deploy the app
 
 Deploy via Firebase App Hosting (Git integration or CLI). The build will read env and secrets; the app will use the same Firestore, Storage, and Auth as local.
 
 ---
 
-**Summary:** Create the 6 secrets in Secret Manager, deploy Firestore + Storage rules, then deploy the app. APIs and storage in production are the same as local.
+## Verifying GA4 (local and production)
+
+1. **Realtime report:** In GA4 → Reports → Realtime, open your site and click around; you should see active users and events.
+2. **DebugView:** In GA4 → Admin → DebugView, add `?debug_mode=true` to the URL of your site (or use the Chrome extension “Google Analytics Debugger”) and trigger a conversion (submit contact form, click Call, or click a quote CTA). You should see `lead_submit`, `call_click`, or `quote_click` with optional `location` parameter.
+3. **Tag Assistant / GA Debugger:** Use [Tag Assistant](https://tagassistant.google.com/) or the “Google Analytics Debugger” Chrome extension to confirm the GA4 tag loads and events fire. No secrets are sent; only the Measurement ID and event data go to Google.
+
+**Summary:** Create the 6 secrets in Secret Manager, set `NEXT_PUBLIC_GA4_ID` and `GA4_PROPERTY_ID` for production (and enable Google Analytics Data API + add service account to GA4), deploy Firestore + Storage rules, then deploy the app. APIs and storage in production are the same as local.

@@ -1,11 +1,6 @@
-export type ServiceIcon =
-  | "roof"
-  | "gutter"
-  | "repair"
-  | "inspection"
-  | "maintenance"
-  | "emergency"
-  | "strata";
+import type { ServiceIcon } from "@/lib/firestore-types";
+
+export type { ServiceIcon };
 
 export type Service = {
   slug: string;

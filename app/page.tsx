@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import CTAButton from "@/components/CTAButton";
+import TrackedPhoneLink from "@/components/TrackedPhoneLink";
 import TestimonialCard from "@/components/TestimonialCard";
 import FAQAccordion from "@/components/FAQAccordion";
 import ProjectsSection from "@/components/ProjectsSection";
@@ -286,18 +287,14 @@ export default async function Home() {
             </p>
           </div>
           <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-            <a
+            <TrackedPhoneLink
               href={`tel:${PHONE.replace(/\s/g, "")}`}
+              location="hero"
               className="inline-flex min-h-[44px] items-center justify-center rounded-lg border-2 border-neutral-900 bg-transparent px-4 py-3 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-900 hover:text-accent active:bg-neutral-900 active:text-accent"
             >
               Call {PHONE}
-            </a>
-            <Link
-              href="/contact"
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-neutral-900 px-4 py-3 text-sm font-semibold text-[#FFBC00] transition-colors hover:bg-neutral-800 active:bg-neutral-800"
-            >
-              Get a Free Quote
-            </Link>
+            </TrackedPhoneLink>
+            <CTAButton href="/contact" label="Get a Free Quote" trackQuoteLocation="hero" />
           </div>
         </div>
       </section>

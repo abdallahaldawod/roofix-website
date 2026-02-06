@@ -1,11 +1,13 @@
 import Link from "next/link";
+import type { ProjectFilterCategory } from "@/lib/data";
 
+/** Legacy type for default categories; projects and filters can use any string from config. */
 export type ProjectCategory = "roofing" | "gutters" | "repairs";
 
 type ProjectItem = {
   id: string;
   title: string;
-  category: ProjectCategory;
+  category: string;
   suburb?: string;
   /** First image URL for card thumbnail (e.g. from Firestore) */
   imageUrl?: string;
@@ -14,13 +16,15 @@ type ProjectItem = {
 type ProjectGridProps = {
   projects: ProjectItem[];
   showFilter?: boolean;
-  activeFilter?: ProjectCategory | "all";
-  onFilterChange?: (category: ProjectCategory | "all") => void;
+  activeFilter?: string;
+  onFilterChange?: (category: string) => void;
   /** On small screens, show a horizontal scroll carousel instead of grid */
   carouselOnMobile?: boolean;
+  /** From Firestore config; labels and order for filter tabs. If not set, built-in defaults are used. */
+  filterCategories?: ProjectFilterCategory[];
 };
 
-const categoryLabels: Record<ProjectCategory | "all", string> = {
+const defaultCategoryLabels: Record<string, string> = {
   all: "All",
   roofing: "Roofing",
   gutters: "Gutters",
@@ -33,11 +37,20 @@ export default function ProjectGrid({
   activeFilter = "all",
   onFilterChange,
   carouselOnMobile = false,
+  filterCategories,
 }: ProjectGridProps) {
   const filtered =
     activeFilter === "all"
       ? projects
       : projects.filter((p) => p.category === activeFilter);
+
+  const categoryLabels: Record<string, string> = filterCategories?.length
+    ? { all: "All", ...Object.fromEntries(filterCategories.map((c) => [c.value, c.label])) }
+    : defaultCategoryLabels;
+
+  const filterTabs: string[] = filterCategories?.length
+    ? ["all", ...filterCategories.map((c) => c.value)]
+    : ["all", "roofing", "gutters", "repairs"];
 
   const gridOrCarouselClass = carouselOnMobile
     ? "flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory -mx-4 pl-[7.5vw] pr-[7.5vw] sm:-mx-6 sm:pl-[7.5vw] sm:pr-[7.5vw] md:mx-0 md:px-0 md:overflow-visible md:grid md:grid-cols-2 md:gap-6 md:pb-0 lg:grid-cols-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -47,7 +60,7 @@ export default function ProjectGrid({
     <div>
       {showFilter && onFilterChange && (
         <div className="mb-8 flex flex-wrap justify-center gap-2">
-          {(["all", "roofing", "gutters", "repairs"] as const).map((cat) => (
+          {filterTabs.map((cat) => (
             <button
               key={cat}
               type="button"
@@ -58,7 +71,7 @@ export default function ProjectGrid({
                   : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
               }`}
             >
-              {categoryLabels[cat]}
+              {categoryLabels[cat] ?? cat}
             </button>
           ))}
         </div>
@@ -86,7 +99,7 @@ export default function ProjectGrid({
             </div>
             <div className="p-4">
               <span className="text-xs font-medium uppercase tracking-wider text-accent">
-                {categoryLabels[project.category]}
+                {categoryLabels[project.category] ?? project.category}
               </span>
               <h3 className="mt-1 font-semibold text-neutral-900 group-hover:text-accent">
                 {project.title}

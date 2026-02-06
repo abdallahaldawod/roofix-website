@@ -60,7 +60,7 @@ export default async function ServicesPage() {
             ))}
           </div>
           <div className="mt-12 text-center">
-            <CTAButton href="/contact" label="Get a free quote" />
+            <CTAButton href="/contact" label="Get a free quote" trackQuoteLocation="services" />
           </div>
         </div>
       </section>

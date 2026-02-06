@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   collection,
   addDoc,
@@ -16,10 +16,20 @@ import { getFirestoreDb } from "@/lib/firebase/client";
 import { uploadImage } from "@/lib/firebase/upload";
 import { refreshPublicSiteCache } from "../actions";
 import type { Project, ProjectCategory } from "@/lib/firestore-types";
-import { Plus, Pencil, Trash2, Upload, X } from "lucide-react";
+import type { ProjectFilterCategory } from "@/lib/data";
+import { Plus, Pencil, Trash2, Upload, X, GripVertical, Save, PlusCircle } from "lucide-react";
 
 const PROJECTS_COLLECTION = "projects";
+const CONFIG_COLLECTION = "config";
+const PROJECT_FILTERS_DOC = "projectFilters";
 const SLUG_REGEX = /^[a-z0-9-]+$/;
+
+const DEFAULT_FILTER_CATEGORIES: ProjectFilterCategory[] = [
+  { value: "roofing", label: "Roofing" },
+  { value: "gutters", label: "Gutters" },
+  { value: "repairs", label: "Repairs" },
+];
+
 function normalizeSlug(s: string): string {
   return s
     .toLowerCase()
@@ -27,11 +37,22 @@ function normalizeSlug(s: string): string {
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
 }
-const CATEGORIES: { value: ProjectCategory; label: string }[] = [
-  { value: "roofing", label: "Roofing" },
-  { value: "gutters", label: "Gutters" },
-  { value: "repairs", label: "Repairs" },
-];
+
+/** Generate a URL-safe project id for use as slug (e.g. project-a1b2c3d4). */
+function generateProjectId(): string {
+  const segment = typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `project-${segment}`;
+}
+/** Firestore does not accept undefined; strip so only defined fields are written. */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out = { ...obj };
+  for (const key of Object.keys(out)) {
+    if (out[key] === undefined) delete out[key];
+  }
+  return out as T;
+}
 
 function toProject(docId: string, data: Record<string, unknown>): Project & { id: string } {
   const slugFromDb = data.slug;
@@ -44,9 +65,18 @@ function toProject(docId: string, data: Record<string, unknown>): Project & { id
     suburb: (data.suburb as string) ?? "",
     description: (data.description as string) ?? "",
     tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
-    category: (data.category as ProjectCategory) ?? "roofing",
+    category: typeof data.category === "string" ? data.category : "roofing",
     imageUrls: Array.isArray(data.imageUrls) ? (data.imageUrls as string[]) : [],
     order: typeof data.order === "number" ? data.order : undefined,
+    roofType: typeof data.roofType === "string" ? data.roofType : undefined,
+    roofSizeM2: typeof data.roofSizeM2 === "number" ? data.roofSizeM2 : undefined,
+    durationDays: typeof data.durationDays === "number" ? data.durationDays : undefined,
+    materials: Array.isArray(data.materials) ? (data.materials as string[]) : undefined,
+    problem: typeof data.problem === "string" ? data.problem : undefined,
+    solution: typeof data.solution === "string" ? data.solution : undefined,
+    result: typeof data.result === "string" ? data.result : undefined,
+    testimonialQuote: typeof data.testimonialQuote === "string" ? data.testimonialQuote : undefined,
+    testimonialAuthor: typeof data.testimonialAuthor === "string" ? data.testimonialAuthor : undefined,
   };
 }
 
@@ -63,10 +93,18 @@ export default function ControlCentreProjectsPage() {
     category: "roofing",
     imageUrls: [],
     slug: "",
+    roofType: "",
+    roofSizeM2: undefined,
+    durationDays: undefined,
+    materials: [],
   });
-  const [tagInput, setTagInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [filterCategories, setFilterCategories] = useState<ProjectFilterCategory[]>(DEFAULT_FILTER_CATEGORIES);
+  const [filterCategoriesSaving, setFilterCategoriesSaving] = useState(false);
+  const [filterCategoriesLoaded, setFilterCategoriesLoaded] = useState(false);
+  const [newCategoryLabel, setNewCategoryLabel] = useState("");
+  const savedFilterCategoriesRef = useRef<ProjectFilterCategory[]>([]);
 
   async function load() {
     setLoading(true);
@@ -88,19 +126,131 @@ export default function ControlCentreProjectsPage() {
     load();
   }, []);
 
+  async function loadFilterCategories() {
+    let loaded: ProjectFilterCategory[] = DEFAULT_FILTER_CATEGORIES;
+    try {
+      const db = getFirestoreDb();
+      const snap = await getDoc(doc(db, CONFIG_COLLECTION, PROJECT_FILTERS_DOC));
+      const data = snap.data();
+      const categories = data?.categories;
+      if (Array.isArray(categories) && categories.length > 0) {
+        loaded = categories
+          .filter((c: unknown) => c && typeof c === "object" && "value" in c && "label" in c)
+          .map((c: { value: string; label: string }) => ({ value: String(c.value), label: String(c.label) }));
+        setFilterCategories(loaded);
+      } else {
+        setFilterCategories(loaded);
+      }
+    } catch (e) {
+      console.error(e);
+      setFilterCategories(loaded);
+    } finally {
+      savedFilterCategoriesRef.current = loaded.map((c) => ({ ...c }));
+      setFilterCategoriesLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    loadFilterCategories();
+  }, []);
+
+  async function saveFilterCategories() {
+    setFilterCategoriesSaving(true);
+    try {
+      const db = getFirestoreDb();
+      await setDoc(
+        doc(db, CONFIG_COLLECTION, PROJECT_FILTERS_DOC),
+        { categories: filterCategories, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+      await refreshPublicSiteCache();
+      savedFilterCategoriesRef.current = filterCategories.map((c) => ({ ...c }));
+      alert("Filter tabs saved. They will appear on the public Projects page.");
+    } catch (e) {
+      console.error(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      const isPermission = /permission|insufficient|denied/i.test(msg);
+      alert(
+        isPermission
+          ? "Missing or insufficient permissions. Ensure you're signed in and your user is in the Firestore 'users' collection with role: 'admin'."
+          : "Failed to save filter tabs."
+      );
+    } finally {
+      setFilterCategoriesSaving(false);
+    }
+  }
+
+  function moveFilterCategory(index: number, direction: -1 | 1) {
+    const next = index + direction;
+    if (next < 0 || next >= filterCategories.length) return;
+    const copy = [...filterCategories];
+    const tmp = copy[index];
+    copy[index] = copy[next]!;
+    copy[next] = tmp!;
+    setFilterCategories(copy);
+  }
+
+  function removeFilterCategory(value: string) {
+    setFilterCategories((prev) => prev.filter((c) => c.value !== value));
+  }
+
+  function addFilterCategory(value: ProjectCategory) {
+    const defaultLabel = DEFAULT_FILTER_CATEGORIES.find((c) => c.value === value)?.label ?? value;
+    if (filterCategories.some((c) => c.value === value)) return;
+    setFilterCategories((prev) => [...prev, { value, label: defaultLabel }]);
+  }
+
+  const availableToAdd = (DEFAULT_FILTER_CATEGORIES.map((c) => c.value) as ProjectCategory[]).filter(
+    (value) => !filterCategories.some((c) => c.value === value)
+  );
+
+  function slugifyCategory(s: string): string {
+    return s
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
+  function addCustomCategory() {
+    const label = newCategoryLabel.trim();
+    if (!label) return;
+    const value = slugifyCategory(label);
+    if (!value) return;
+    if (filterCategories.some((c) => c.value === value)) {
+      alert(`Category "${value}" already exists.`);
+      return;
+    }
+    setFilterCategories((prev) => [...prev, { value, label }]);
+    setNewCategoryLabel("");
+  }
+
+  const filterCategoriesDirty =
+    filterCategories.length !== savedFilterCategoriesRef.current.length ||
+    filterCategories.some(
+      (c, i) => {
+        const s = savedFilterCategoriesRef.current[i];
+        return !s || s.value !== c.value || s.label !== c.label;
+      }
+    );
+
   function openCreate() {
     setCreating(true);
     setEditing(null);
+    const defaultCategory = filterCategories[0]?.value ?? "roofing";
     setForm({
       title: "",
       suburb: "",
       description: "",
       tags: [],
-      category: "roofing",
+      category: defaultCategory,
       imageUrls: [],
-      slug: "",
+      slug: generateProjectId(),
+      roofType: "",
+      roofSizeM2: undefined,
+      durationDays: undefined,
+      materials: [],
     });
-    setTagInput("");
   }
 
   function openEdit(p: Project & { id: string }) {
@@ -114,19 +264,11 @@ export default function ControlCentreProjectsPage() {
       category: p.category,
       imageUrls: p.imageUrls ?? [],
       slug: p.slug ?? p.id,
+      roofType: p.roofType ?? "",
+      roofSizeM2: p.roofSizeM2,
+      durationDays: p.durationDays,
+      materials: p.materials ?? [],
     });
-    setTagInput("");
-  }
-
-  function addTag() {
-    const t = tagInput.trim();
-    if (!t || form.tags?.includes(t)) return;
-    setForm((prev) => ({ ...prev, tags: [...(prev.tags ?? []), t] }));
-    setTagInput("");
-  }
-
-  function removeTag(t: string) {
-    setForm((prev) => ({ ...prev, tags: (prev.tags ?? []).filter((x) => x !== t) }));
   }
 
   function getUploadErrorMessage(e: unknown): string {
@@ -178,16 +320,16 @@ export default function ControlCentreProjectsPage() {
 
   async function saveCreate() {
     if (!form.title?.trim()) return;
-    const slug = normalizeSlug(form.slug ?? "").trim();
-    if (slug && !SLUG_REGEX.test(slug)) {
+    let slug = normalizeSlug(form.slug ?? "").trim();
+    if (!slug) slug = generateProjectId();
+    if (!SLUG_REGEX.test(slug)) {
       alert("Slug can only contain lowercase letters, numbers, and hyphens.");
       return;
     }
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      let newId: string;
-      const basePayload = {
+      const basePayload = stripUndefined({
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
@@ -195,26 +337,24 @@ export default function ControlCentreProjectsPage() {
         category: form.category ?? "roofing",
         imageUrls: form.imageUrls ?? [],
         order: projects.length,
+        roofType: (form.roofType ?? "").trim() || undefined,
+        roofSizeM2: form.roofSizeM2,
+        durationDays: form.durationDays,
+        materials: form.materials ?? [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      };
-      if (slug) {
-        const existing = await getDoc(doc(db, PROJECTS_COLLECTION, slug));
-        if (existing.exists()) {
-          alert("A project with this slug already exists. Choose another.");
-          setSaving(false);
-          return;
-        }
-        await setDoc(doc(db, PROJECTS_COLLECTION, slug), {
-          slug,
-          ...basePayload,
-        });
-        newId = slug;
-      } else {
-        const ref = await addDoc(collection(db, PROJECTS_COLLECTION), basePayload);
-        newId = ref.id;
-        await setDoc(doc(db, PROJECTS_COLLECTION, newId), { slug: newId }, { merge: true });
+      });
+      const existing = await getDoc(doc(db, PROJECTS_COLLECTION, slug));
+      if (existing.exists()) {
+        alert("A project with this slug already exists. Choose another or regenerate the slug.");
+        setSaving(false);
+        return;
       }
+      await setDoc(doc(db, PROJECTS_COLLECTION, slug), {
+        slug,
+        ...basePayload,
+      });
+      const newId = slug;
       setCreating(false);
       await load();
       await refreshPublicSiteCache(newId);
@@ -237,15 +377,19 @@ export default function ControlCentreProjectsPage() {
     setSaving(true);
     try {
       const db = getFirestoreDb();
-      const basePayload = {
+      const basePayload = stripUndefined({
         title: form.title.trim(),
         suburb: (form.suburb ?? "").trim(),
         description: (form.description ?? "").trim(),
         tags: form.tags ?? [],
         category: form.category ?? "roofing",
         imageUrls: form.imageUrls ?? [],
+        roofType: (form.roofType ?? "").trim() || undefined,
+        roofSizeM2: form.roofSizeM2,
+        durationDays: form.durationDays,
+        materials: form.materials ?? [],
         updatedAt: serverTimestamp(),
-      };
+      });
       if (newSlug !== editing) {
         const existing = await getDoc(doc(db, PROJECTS_COLLECTION, newSlug));
         if (existing.exists()) {
@@ -256,11 +400,12 @@ export default function ControlCentreProjectsPage() {
         const oldRef = doc(db, PROJECTS_COLLECTION, editing);
         const oldSnap = await getDoc(oldRef);
         const order = (oldSnap.data()?.order as number) ?? 9999;
+        const existingCreatedAt = oldSnap.data()?.createdAt;
         await setDoc(doc(db, PROJECTS_COLLECTION, newSlug), {
           slug: newSlug,
           ...basePayload,
           order,
-          createdAt: oldSnap.data()?.createdAt,
+          createdAt: existingCreatedAt != null ? existingCreatedAt : serverTimestamp(),
         });
         await deleteDoc(oldRef);
         await refreshPublicSiteCache(newSlug);
@@ -305,6 +450,124 @@ export default function ControlCentreProjectsPage() {
       <p className="mt-2 text-sm text-neutral-500">
         Changes here are saved to Firestore and appear on the public website.
       </p>
+
+      {/* Project filter tabs (All, Roofing, Gutters, Repairs) shown on /projects */}
+      <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900">Project filter tabs</h2>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Labels and order of the filter buttons in the grey section on the public Projects page. After saving, refresh the public page to see changes.
+          </p>
+        </div>
+        {!filterCategoriesLoaded ? (
+          <p className="mt-3 text-sm text-neutral-500">Loading…</p>
+        ) : (
+          <>
+            <div className="mt-3 space-y-2">
+              {filterCategories.map((cat, index) => (
+                <div
+                  key={cat.value}
+                  className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/50 p-2"
+                >
+                  <span className="text-neutral-400" aria-hidden>
+                    <GripVertical className="h-4 w-4" />
+                  </span>
+                  <input
+                    type="text"
+                    value={cat.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      setFilterCategories((prev) =>
+                        prev.map((c) => (c.value === cat.value ? { ...c, label } : c))
+                      );
+                    }}
+                    className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900"
+                    placeholder="Tab label"
+                    aria-label={`Filter tab for ${cat.value}`}
+                  />
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => moveFilterCategory(index, -1)}
+                      disabled={index === 0}
+                      className="rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 disabled:opacity-40"
+                      aria-label="Move up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveFilterCategory(index, 1)}
+                      disabled={index === filterCategories.length - 1}
+                      className="rounded p-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 disabled:opacity-40"
+                      aria-label="Move down"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeFilterCategory(cat.value)}
+                      className="rounded p-1 text-red-500 hover:bg-red-50 hover:text-red-700"
+                      aria-label={`Remove ${cat.label}`}
+                      title="Remove tab"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {availableToAdd.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-neutral-500">Add tab:</span>
+                {availableToAdd.map((value) => {
+                  const defaultLabel = DEFAULT_FILTER_CATEGORIES.find((c) => c.value === value)?.label ?? value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => addFilterCategory(value)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                    >
+                      <PlusCircle className="h-4 w-4" /> {defaultLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-neutral-500">Add custom category:</span>
+              <input
+                type="text"
+                value={newCategoryLabel}
+                onChange={(e) => setNewCategoryLabel(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomCategory())}
+                placeholder="e.g. Roof Restoration"
+                className="rounded-lg border border-neutral-300 px-2.5 py-1.5 text-sm text-neutral-900 placeholder:text-neutral-400"
+              />
+              <button
+                type="button"
+                onClick={addCustomCategory}
+                disabled={!newCategoryLabel.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              >
+                <PlusCircle className="h-4 w-4" /> Add
+              </button>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={saveFilterCategories}
+                disabled={!filterCategoriesDirty || filterCategoriesSaving}
+                className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" /> {filterCategoriesSaving ? "Saving…" : "Save filter tabs"}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+
       <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
@@ -368,20 +631,31 @@ export default function ControlCentreProjectsPage() {
             </h2>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-neutral-700">URL slug</label>
-                <input
-                  type="text"
-                  value={form.slug ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
-                  onBlur={(e) => {
-                    const v = normalizeSlug(e.target.value);
-                    if (v !== (form.slug ?? "")) setForm((f) => ({ ...f, slug: v }));
-                  }}
-                  placeholder={creating ? "e.g. full-roof-manly (optional, auto-generated if empty)" : "e.g. website-0"}
-                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 font-mono text-sm text-neutral-900"
-                />
+                <label className="block text-sm font-medium text-neutral-700">Project ID / URL slug</label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={form.slug ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
+                    onBlur={(e) => {
+                      const v = normalizeSlug(e.target.value);
+                      if (v !== (form.slug ?? "")) setForm((f) => ({ ...f, slug: v }));
+                    }}
+                    placeholder={creating ? "Auto-generated" : "e.g. project1"}
+                    className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                  />
+                  {creating && (
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, slug: generateProjectId() }))}
+                      className="shrink-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+                    >
+                      Regenerate
+                    </button>
+                  )}
+                </div>
                 <p className="mt-0.5 text-xs text-neutral-500">
-                  Used in URL: /projects/[slug]. Lowercase letters, numbers, hyphens only.
+                  Used as document ID and in URL: /projects/[slug]. Lowercase letters, numbers, hyphens only.
                 </p>
               </div>
               <div>
@@ -405,15 +679,80 @@ export default function ControlCentreProjectsPage() {
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Category</label>
                 <select
-                  value={form.category ?? "roofing"}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as ProjectCategory }))}
+                  value={form.category ?? filterCategories[0]?.value ?? "roofing"}
+                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
                   className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900"
                 >
-                  {CATEGORIES.map((c) => (
+                  {filterCategories.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
               </div>
+
+              <div className="border-t border-neutral-200 pt-4">
+                <p className="text-sm font-semibold text-neutral-700">Project summary strip</p>
+                <p className="mt-0.5 text-xs text-neutral-500">Shown on the project page (Roof type, Size, Duration, Materials).</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600">Roof type</label>
+                    <input
+                      type="text"
+                      value={form.roofType ?? ""}
+                      onChange={(e) => setForm((f) => ({ ...f, roofType: e.target.value }))}
+                      placeholder="e.g. Colorbond, Tile"
+                      className="mt-0.5 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600">Roof size (m²)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={form.roofSizeM2 ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? undefined : Number(e.target.value);
+                        setForm((f) => ({ ...f, roofSizeM2: v }));
+                      }}
+                      placeholder="—"
+                      className="mt-0.5 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600">Duration (days)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={form.durationDays ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? undefined : Number(e.target.value);
+                        setForm((f) => ({ ...f, durationDays: v }));
+                      }}
+                      placeholder="—"
+                      className="mt-0.5 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-neutral-600">Materials</label>
+                  <input
+                    type="text"
+                    value={(form.materials ?? []).join(", ")}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const list = value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      setForm((f) => ({ ...f, materials: list }));
+                    }}
+                    placeholder="e.g. Colorbond, Tile"
+                    className="mt-0.5 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Description</label>
                 <textarea
@@ -422,35 +761,6 @@ export default function ControlCentreProjectsPage() {
                   rows={3}
                   className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-neutral-700">Tags</label>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {(form.tags ?? []).map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-sm"
-                    >
-                      {t}
-                      <button type="button" onClick={() => removeTag(t)} className="text-neutral-500 hover:text-neutral-700">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <div className="flex gap-1">
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
-                      placeholder="Add tag"
-                      className="w-28 rounded border border-neutral-300 px-2 py-1 text-sm"
-                    />
-                    <button type="button" onClick={addTag} className="rounded bg-neutral-100 px-2 py-1 text-sm hover:bg-neutral-200">
-                      Add
-                    </button>
-                  </div>
-                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Images</label>

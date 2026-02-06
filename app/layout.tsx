@@ -62,6 +62,9 @@ export const metadata: Metadata = {
 
 import { headers } from "next/headers";
 import LayoutSwitcher from "@/components/LayoutSwitcher";
+import GA4Script from "@/components/GA4Script";
+
+const GA4_ID = process.env.NEXT_PUBLIC_GA4_ID;
 
 export default async function RootLayout({
   children,
@@ -76,6 +79,7 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
+        {!isControlCentre && GA4_ID && <GA4Script gaId={GA4_ID} />}
         <LayoutSwitcher isControlCentre={isControlCentre}>{children}</LayoutSwitcher>
       </body>
     </html>

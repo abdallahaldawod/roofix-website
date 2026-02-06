@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import CTAButton from "./CTAButton";
+import TrackedPhoneLink from "./TrackedPhoneLink";
 
 const PHONE = "0497 777 755";
 
@@ -62,28 +63,30 @@ export default function Header() {
         </nav>
 
         <div className="hidden items-center gap-4 md:flex">
-          <a
+          <TrackedPhoneLink
             href={`tel:${PHONE.replace(/\s/g, "")}`}
+            location="header"
             className={`text-sm font-semibold transition-colors hover:text-accent ${
               scrolled ? "text-neutral-700" : "text-neutral-900"
             }`}
           >
             {PHONE}
-          </a>
-          <CTAButton href="/contact" label="Get a Free Quote" />
+          </TrackedPhoneLink>
+          <CTAButton href="/contact" label="Get a Free Quote" trackQuoteLocation="header" />
         </div>
 
         <div className="flex items-center gap-1 md:hidden">
-          <a
+          <TrackedPhoneLink
             href={`tel:${PHONE.replace(/\s/g, "")}`}
+            location="header_mobile"
             className="inline-flex h-11 min-h-[44px] w-11 min-w-[44px] shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-accent active:bg-neutral-200"
             aria-label={`Call ${PHONE}`}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
             </svg>
-          </a>
-          <CTAButton href="/contact" label="Get a Free Quote" />
+          </TrackedPhoneLink>
+          <CTAButton href="/contact" label="Get a Free Quote" trackQuoteLocation="header_mobile" />
           <button
             type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
