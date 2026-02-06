@@ -9,10 +9,12 @@ import {
   Users,
   MousePointer,
   FileText,
+  Radio,
 } from "lucide-react";
 import {
-  LineChart,
+  ComposedChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -64,11 +66,24 @@ function getDateRange(preset: "7d" | "28d" | "90d"): { startDate: string; endDat
   };
 }
 
+/** Format YYYYMMDD for chart axis: DD/MM */
 function formatChartDate(dateStr: string): string {
   if (dateStr.length === 8) {
     return `${dateStr.slice(6, 8)}/${dateStr.slice(4, 6)}`;
   }
   return dateStr;
+}
+
+/** Format YYYYMMDD for tooltip: e.g. "6 Feb 2025" */
+function formatChartDateLong(dateStr: string): string {
+  if (dateStr.length !== 8) return dateStr;
+  const y = dateStr.slice(0, 4);
+  const m = dateStr.slice(4, 6);
+  const d = dateStr.slice(6, 8);
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = monthNames[parseInt(m, 10) - 1] ?? m;
+  const day = parseInt(d, 10);
+  return `${day} ${month} ${y}`;
 }
 
 const PRESETS = [
@@ -107,6 +122,9 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveActiveUsers, setLiveActiveUsers] = useState<number | null>(null);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const cached = getCached(preset);
@@ -145,6 +163,33 @@ export default function AnalyticsPage() {
     }
   }, [preset]);
 
+  const fetchLiveActiveUsers = useCallback(async () => {
+    const auth = getFirebaseAuth();
+    const user = auth.currentUser;
+    if (!user) {
+      setLiveError("Sign in required");
+      setLiveLoading(false);
+      return;
+    }
+    const token = await user.getIdToken();
+    try {
+      const res = await fetch("/api/control-centre/analytics/realtime", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await res.json()) as { ok: boolean; activeUsers?: number; error?: string };
+      if (res.ok && json.ok && json.activeUsers != null) {
+        setLiveActiveUsers(json.activeUsers);
+        setLiveError(null);
+      } else {
+        setLiveError(json.error ?? "Failed to load");
+      }
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLiveLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const cached = getCached(preset);
     if (cached) {
@@ -154,8 +199,18 @@ export default function AnalyticsPage() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    fetchLiveActiveUsers();
+    const interval = setInterval(fetchLiveActiveUsers, 45 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchLiveActiveUsers]);
+
   const summary = data?.ok ? data.summary : undefined;
-  const byDate = data?.ok ? (data.byDate ?? []).map((r) => ({ ...r, label: formatChartDate(r.date) })) : [];
+  const byDate = data?.ok
+    ? (data.byDate ?? [])
+        .map((r) => ({ ...r, label: formatChartDate(r.date), labelLong: formatChartDateLong(r.date) }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    : [];
   const topPages = data?.ok ? data.topPages ?? [] : [];
   const topSources = data?.ok ? data.topSources ?? [] : [];
   const events = data?.ok ? data.events ?? [] : [];
@@ -218,6 +273,41 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {/* Current active users right now — GA4 real-time (last ~30 min), polls every 45s */}
+      <section aria-label="Active users right now">
+        <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+              <Radio className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                  Active users right now
+                </span>
+                <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-medium text-white animate-pulse">
+                  LIVE
+                </span>
+              </div>
+              <div className="mt-1 min-h-[2rem]">
+                {liveLoading ? (
+                  <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
+                ) : liveError ? (
+                  <p className="text-sm text-amber-700">{liveError}</p>
+                ) : (
+                  <p className="tabular-nums text-2xl font-bold text-neutral-900" title="Users on your site in the last 30 minutes">
+                    {liveActiveUsers != null ? liveActiveUsers.toLocaleString() : "—"}
+                  </p>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-neutral-500">
+                Users on your site in the last 30 minutes · refreshes every 45s
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Show dashboard whenever we have summary (stay visible during refresh); animate updates */}
       {summary && (
         <>
@@ -260,31 +350,75 @@ export default function AnalyticsPage() {
                 <div className="analytics-chart-skeleton h-full w-full" aria-hidden />
               ) : byDate.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
+                  <ComposedChart
                     key={`chart-${preset}-${byDate.length}`}
                     data={byDate}
-                    margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                    margin={{ top: 16, right: 16, left: 0, bottom: byDate.length > 14 ? 36 : 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                    <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#a3a3a3" />
-                    <YAxis tick={{ fontSize: 12 }} stroke="#a3a3a3" />
-                    <Tooltip
-                      contentStyle={{ borderRadius: "8px", border: "1px solid #e5e5e5" }}
-                      formatter={(value) => [(value ?? 0).toLocaleString(), "Active users"]}
-                      labelFormatter={(label) => `Date: ${label}`}
+                    <defs>
+                      <linearGradient id="activeUsersGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#0f172a" stopOpacity={0.2} />
+                        <stop offset="100%" stopColor="#0f172a" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eaeaea" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "#737373" }}
+                      axisLine={{ stroke: "#e5e5e5" }}
+                      tickLine={false}
+                      interval={byDate.length <= 20 ? 0 : Math.max(0, Math.floor(byDate.length / 15) - 1)}
+                      angle={byDate.length > 14 ? -40 : 0}
+                      textAnchor={byDate.length > 14 ? "end" : "middle"}
+                      height={byDate.length > 14 ? 44 : 28}
                     />
-                    <Line
-                      type="monotone"
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "#737373" }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={[0, "auto"]}
+                      allowDecimals={false}
+                      width={32}
+                      tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : String(v))}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: "10px",
+                        border: "1px solid #e5e5e5",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                        padding: "10px 14px",
+                      }}
+                      formatter={(value) => [(value ?? 0).toLocaleString(), "Active users"]}
+                      labelFormatter={(_, payload) => {
+                        const p = payload?.[0]?.payload as { labelLong?: string } | undefined;
+                        return p?.labelLong ? p.labelLong : `${_}`;
+                      }}
+                      cursor={{ stroke: "#e5e5e5", strokeWidth: 1, strokeDasharray: "4 4" }}
+                    />
+                    <Area
+                      type="natural"
                       dataKey="activeUsers"
-                      stroke="#0f172a"
-                      strokeWidth={2}
-                      dot={{ fill: "#0f172a", r: 3 }}
-                      activeDot={{ r: 4 }}
+                      fill="url(#activeUsersGradient)"
+                      stroke="none"
                       isAnimationActive
-                      animationDuration={400}
+                      animationDuration={500}
                       animationEasing="ease-out"
                     />
-                  </LineChart>
+                    <Line
+                      type="natural"
+                      dataKey="activeUsers"
+                      stroke="#0f172a"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      dot={{ fill: "#0f172a", strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5, fill: "#fff", stroke: "#0f172a", strokeWidth: 2 }}
+                      isAnimationActive
+                      animationDuration={500}
+                      animationEasing="ease-out"
+                      connectNulls={false}
+                    />
+                  </ComposedChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-neutral-500">

@@ -235,3 +235,49 @@ export async function fetchGa4Analytics(
     };
   }
 }
+
+export type Ga4RealtimeResult =
+  | { ok: true; activeUsers: number }
+  | { ok: false; error: string; ga4Code?: string; ga4Message?: string };
+
+/**
+ * Fetches real-time active users from GA4 (last ~30 min). Uses runRealtimeReport.
+ */
+export async function fetchGa4RealtimeActiveUsers(propertyId: string): Promise<Ga4RealtimeResult> {
+  const client = getGa4Client();
+  if (!client) {
+    return {
+      ok: false,
+      error:
+        "Missing credentials. Set FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_SERVICE_ACCOUNT_KEY_PATH (dev).",
+    };
+  }
+
+  const property = `properties/${propertyId}`;
+  if (process.env.NODE_ENV === "development") {
+    console.info("[GA4 Realtime] property:", property);
+  }
+
+  try {
+    const [response] = await client.runRealtimeReport({
+      property,
+      metrics: [{ name: "activeUsers" }],
+    });
+
+    const row = response.rows?.[0];
+    const activeUsers = row?.metricValues?.[0]?.value != null ? Number(row.metricValues[0].value) : 0;
+
+    return { ok: true, activeUsers };
+  } catch (e) {
+    const { message, code } = getErrorDetails(e);
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[GA4 Realtime] runRealtimeReport error:", message, "code:", code);
+    }
+    return {
+      ok: false,
+      error: message,
+      ga4Code: code,
+      ga4Message: message,
+    };
+  }
+}
