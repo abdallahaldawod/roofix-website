@@ -23,7 +23,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { getDateInSydneyOffset, getTodayInSydney } from "@/lib/sydney-date";
+import { getTodayInSydney } from "@/lib/sydney-date";
 import { DateRangeDropdown, getRangeLabel } from "./DateRangeDropdown";
 
 type Ga4Summary = {
@@ -65,10 +65,8 @@ function formatDateYMD(d: Date): string {
 }
 
 function getInitialDateRange(): { startDate: string; endDate: string } {
-  return {
-    startDate: getDateInSydneyOffset(-7),
-    endDate: getTodayInSydney(),
-  };
+  const today = getTodayInSydney();
+  return { startDate: today, endDate: today };
 }
 
 /** All dates between start and end (inclusive), in GA4 format YYYYMMDD. Uses local date. */

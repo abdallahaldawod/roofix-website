@@ -128,7 +128,7 @@ export default async function ContactPage() {
                 </ul>
               </div>
             </div>
-            <div className="order-1 lg:order-2 flex min-h-[160px] flex-col rounded-2xl border border-neutral-200/80 bg-white p-4 shadow-md shadow-neutral-200/50 sm:p-6">
+            <div className="order-1 lg:order-2 w-full self-start rounded-2xl border border-neutral-200/80 bg-white p-4 shadow-md shadow-neutral-200/50 sm:p-6">
               <ContactForm serviceOptions={serviceOptions} />
             </div>
           </div>

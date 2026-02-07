@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import CustomSelect from "@/components/CustomSelect";
 import FieldError from "@/components/FieldError";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
@@ -61,6 +61,8 @@ type ContactFormProps = {
 export default function ContactForm(props?: ContactFormProps) {
   const serviceOptions = (props?.serviceOptions?.length ? props.serviceOptions! : DEFAULT_SERVICE_OPTIONS);
   const [state, formAction] = useActionState(submitContactForm, { success: false });
+  const [phase, setPhase] = useState<"form" | "exiting" | "success">("form");
+  const [successMounted, setSuccessMounted] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -69,6 +71,7 @@ export default function ContactForm(props?: ContactFormProps) {
   const [projectType, setProjectType] = useState("");
   const [service, setService] = useState("");
   const [phone, setPhone] = useState("");
+  const exitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setFieldErrors(state.fieldErrors ?? {});
@@ -77,6 +80,28 @@ export default function ContactForm(props?: ContactFormProps) {
   useEffect(() => {
     if (state.success) trackLeadSubmit();
   }, [state.success]);
+
+  useEffect(() => {
+    if (state.success && phase === "form") setPhase("exiting");
+  }, [state.success, phase]);
+
+  useEffect(() => {
+    if (phase === "exiting") {
+      exitTimeoutRef.current = setTimeout(() => setPhase("success"), 580);
+      return () => {
+        if (exitTimeoutRef.current) clearTimeout(exitTimeoutRef.current);
+      };
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase === "success") {
+      const t = requestAnimationFrame(() => setSuccessMounted(true));
+      return () => cancelAnimationFrame(t);
+    } else {
+      setSuccessMounted(false);
+    }
+  }, [phase]);
 
   useEffect(() => {
     if (state.formData) {
@@ -104,36 +129,41 @@ export default function ContactForm(props?: ContactFormProps) {
     });
   }
 
-  if (state.success) {
-    return (
-      <div className="relative flex min-h-0 flex-1 items-center overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-white p-4 shadow-sm sm:p-5">
-        <div className="absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-emerald-100/60" aria-hidden />
-        <div className="relative w-full text-left">
-          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-md shadow-emerald-500/25">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h3 className="text-base font-bold tracking-tight text-neutral-900 sm:text-lg">
-            Message sent
-          </h3>
-          <p className="mt-1 text-sm leading-snug text-neutral-600">
-            Thanks for getting in touch. We&apos;ll get back to you within 24 hours.
-          </p>
-          <p className="mt-1.5 text-xs text-neutral-500">
-            Need a quicker response? Call us on{" "}
-            <TrackedPhoneLink href="tel:0497777755" location="contact_success" className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">
-              0497 777 755
-            </TrackedPhoneLink>
-            .
-          </p>
+  const successBlock = (
+    <div
+      className={`relative w-full overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-white p-4 shadow-sm sm:p-5 transition-all duration-300 ease-out origin-top ${
+        successMounted ? "scale-100 opacity-100" : "scale-95 opacity-0"
+      }`}
+    >
+      <div className="absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-emerald-100/60" aria-hidden />
+      <div className="relative text-left">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-md shadow-emerald-500/25">
+          <svg className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden>
+            <path className="contact-success-tick" d="M5 13l4 4L19 7" />
+          </svg>
         </div>
+        <h3 className="text-base font-bold tracking-tight text-neutral-900 sm:text-lg">
+          Message sent
+        </h3>
+        <p className="mt-1 text-sm leading-snug text-neutral-600">
+          Thanks for getting in touch. We&apos;ll get back to you within 24 hours.
+        </p>
+        <p className="mt-1.5 text-xs text-neutral-500">
+          Need a quicker response? Call us on{" "}
+          <TrackedPhoneLink href="tel:0497777755" location="contact_success" className="font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">
+            0497 777 755
+          </TrackedPhoneLink>
+          .
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+
+  if (phase === "success") return successBlock;
 
   return (
-    <form action={formAction} noValidate className="space-y-3" autoComplete="nope">
+    <div className={`overflow-hidden transition-all duration-500 ease-out ${phase === "exiting" ? "max-h-0 opacity-0" : "max-h-[2000px] opacity-100"}`}>
+      <form action={formAction} noValidate className="space-y-3" autoComplete="nope">
       {state.error && (
         <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
           {state.error}
@@ -340,5 +370,6 @@ export default function ContactForm(props?: ContactFormProps) {
         <SubmitButton />
       </div>
     </form>
+    </div>
   );
 }

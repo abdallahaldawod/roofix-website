@@ -158,3 +158,15 @@ select.form-select:focus {
   background-size: 200% 100%;
   animation: analytics-value-shimmer 1.4s ease-in-out infinite;
 }
+
+/* Contact form success: animated tick (draws after success block appears) */
+@keyframes contact-tick-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.contact-success-tick {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: contact-tick-draw 0.45s ease-out 0.35s forwards;
+}
