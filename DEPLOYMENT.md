@@ -55,3 +55,16 @@ Deploy via Firebase App Hosting (Git integration or CLI). The build will read en
 3. **Tag Assistant / GA Debugger:** Use [Tag Assistant](https://tagassistant.google.com/) or the “Google Analytics Debugger” Chrome extension to confirm the GA4 tag loads and events fire. No secrets are sent; only the Measurement ID and event data go to Google.
 
 **Summary:** Create the 6 secrets in Secret Manager, set `NEXT_PUBLIC_GA4_ID` and `GA4_PROPERTY_ID` for production (and enable Google Analytics Data API + add service account to GA4), deploy Firestore + Storage rules, then deploy the app. APIs and storage in production are the same as local.
+
+---
+
+## Contact form works locally but not in production
+
+Production does **not** use `.env.local`. It uses secrets from **Google Cloud Secret Manager**.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) → select the same project as Firebase (e.g. `roofix-768a5`) → **Security** → **Secret Manager**.
+2. Find the secret **`RESEND_API_KEY`**:
+   - If it doesn’t exist: **Create secret** → name `RESEND_API_KEY` → set the secret value to your Resend key (e.g. `re_xxxx...`, no quotes) → Create.
+   - If it exists: open it → **New version** → paste the same key that works in `.env.local` (no quotes) → Add new version.
+3. **Redeploy** the app (e.g. push a commit to trigger App Hosting, or deploy via Firebase CLI). The running app only picks up the new secret after a new deployment.
+4. Test the contact form on the live site again.

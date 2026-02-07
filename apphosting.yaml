@@ -7,17 +7,15 @@ runConfig:
   minInstances: 0
 
 env:
-  # --- Contact form (Resend) ---
+  # --- Contact form (Resend, default sender only — no custom domain) ---
   - variable: RESEND_API_KEY
     secret: RESEND_API_KEY
     availability: [BUILD, RUNTIME]
+  # Must be the email you used to sign up for Resend; default sender can only deliver to that address.
   - variable: CONTACT_FORM_TO_EMAIL
     value: "info@roofix.com.au"
     availability: [BUILD, RUNTIME]
-  # Optional: set after verifying domain in Resend. If omitted, Resend uses default sender.
-  - variable: CONTACT_FORM_FROM_EMAIL
-    value: "Roofix <noreply@roofix.com.au>"
-    availability: [BUILD, RUNTIME]
+  # Leave CONTACT_FORM_FROM_EMAIL unset to use Resend default (onboarding@resend.dev). Reply-To is set to the contact form submitter.
 
   # --- Google Places (address autocomplete) ---
   - variable: GOOGLE_PLACES_API_KEY

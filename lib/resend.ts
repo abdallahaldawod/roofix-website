@@ -10,24 +10,34 @@ export type ResendConfig =
   | { ok: true; apiKey: string; to: string; from: string }
   | { ok: false; error: string };
 
+/** Resend default sender when no custom domain is used. Sends only to Resend account owner. */
+const RESEND_DEFAULT_FROM = "Roofix Website <onboarding@resend.dev>";
+
 export function getResendConfig(): ResendConfig {
   const apiKey = getResendApiKey();
   if (!apiKey || !apiKey.startsWith("re_")) {
+    const isProd = process.env.NODE_ENV === "production";
     return {
       ok: false,
-      error:
-        "RESEND_API_KEY is missing or invalid. Add it to .env.local (get a key at https://resend.com/api-keys). Restart the dev server after changing .env.local.",
+      error: isProd
+        ? "RESEND_API_KEY is missing. Set the RESEND_API_KEY secret in Google Cloud Secret Manager and redeploy."
+        : "RESEND_API_KEY is missing or invalid. Add it to .env.local (get a key at https://resend.com/api-keys). Restart the dev server after changing .env.local.",
     };
   }
 
   const to = process.env.CONTACT_FORM_TO_EMAIL?.trim();
   if (!to) {
-    return { ok: false, error: "CONTACT_FORM_TO_EMAIL is not set in .env.local." };
+    const isProd = process.env.NODE_ENV === "production";
+    return {
+      ok: false,
+      error: isProd
+        ? "CONTACT_FORM_TO_EMAIL is not set in production. Set it in App Hosting env (apphosting.yaml) to the email you used to sign up for Resend — with the default sender you can only send to that address."
+        : "CONTACT_FORM_TO_EMAIL is not set in .env.local.",
+    };
   }
 
-  const from =
-    process.env.CONTACT_FORM_FROM_EMAIL?.trim() ||
-    "Roofix Website <onboarding@resend.dev>";
+  const fromRaw = process.env.CONTACT_FORM_FROM_EMAIL?.trim();
+  const from = fromRaw || RESEND_DEFAULT_FROM;
 
   return { ok: true, apiKey, to, from };
 }
@@ -112,7 +122,7 @@ export async function sendContactEmail(
     return {
       ok: false,
       error:
-        "Sender address not set up. Verify your domain at https://resend.com/domains and set CONTACT_FORM_FROM_EMAIL (e.g. Roofix <noreply@yourdomain.com>).",
+        "Sender address rejected. With no custom domain, leave CONTACT_FORM_FROM_EMAIL unset in production so Resend uses the default (onboarding@resend.dev). Or verify a domain at https://resend.com/domains and set CONTACT_FORM_FROM_EMAIL.",
     };
   }
   if (code === "invalid_attachment" || /attachment/i.test(msg)) {
@@ -122,7 +132,7 @@ export async function sendContactEmail(
     return {
       ok: false,
       error:
-        "With the default sender (onboarding@resend.dev) you can only send to the email you used to sign up for Resend. Either set CONTACT_FORM_TO_EMAIL to that address, or add and verify your domain at https://resend.com/domains and set CONTACT_FORM_FROM_EMAIL.",
+        "With the default sender you can only send to the email you used to sign up for Resend. Set CONTACT_FORM_TO_EMAIL (in apphosting.yaml or .env.local) to that address.",
     };
   }
 
