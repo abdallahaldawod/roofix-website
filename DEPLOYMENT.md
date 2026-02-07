@@ -17,15 +17,15 @@ In [Google Cloud Console](https://console.cloud.google.com/) â†’ **Security** â†
 
 Use the **same** Firebase project as local (`roofix-768a5`). Copy values from your `.env.local` if you prefer.
 
-**Grant App Hosting access to secrets:** If you created secrets in the Cloud Console (instead of `firebase apphosting:secrets:set`), the App Hosting backend must be granted access. From the project root, run for each secret name:
+**Grant App Hosting access to secrets:** If you created secrets in the Cloud Console (instead of `firebase apphosting:secrets:set`), the App Hosting backend must be granted access. List your backend and region with `firebase apphosting:backends:list --project roofix-768a5`, then from the project root run (use your backend name and region; example below uses `roofix-website` and `us-east4`):
 
 ```bash
-firebase apphosting:secrets:grantaccess RESEND_API_KEY --project roofix-768a5
-firebase apphosting:secrets:grantaccess GOOGLE_PLACES_API_KEY --project roofix-768a5
-firebase apphosting:secrets:grantaccess FIREBASE_SERVICE_ACCOUNT_KEY --project roofix-768a5
-firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_API_KEY --project roofix-768a5
-firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID --project roofix-768a5
-firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_APP_ID --project roofix-768a5
+firebase apphosting:secrets:grantaccess RESEND_API_KEY --backend roofix-website --location us-east4 --project roofix-768a5
+firebase apphosting:secrets:grantaccess GOOGLE_PLACES_API_KEY --backend roofix-website --location us-east4 --project roofix-768a5
+firebase apphosting:secrets:grantaccess FIREBASE_SERVICE_ACCOUNT_KEY --backend roofix-website --location us-east4 --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_API_KEY --backend roofix-website --location us-east4 --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID --backend roofix-website --location us-east4 --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_APP_ID --backend roofix-website --location us-east4 --project roofix-768a5
 ```
 
 Then redeploy. See [Configure secret parameters](https://firebase.google.com/docs/app-hosting/configure#secret-parameters).
