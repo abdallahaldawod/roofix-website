@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { recordConversion } from "@/lib/conversions";
 import { checkRateLimit, getClientIpFromHeaders } from "@/lib/rateLimit";
 import { getResendConfig, sendContactEmail } from "@/lib/resend";
 
@@ -121,6 +122,9 @@ export async function submitContactForm(
     attachments
   );
 
-  if (result.ok) return { success: true };
+  if (result.ok) {
+    await recordConversion("lead_submit");
+    return { success: true };
+  }
   return { success: false, error: result.error };
 }

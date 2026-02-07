@@ -151,6 +151,11 @@ export default function AnalyticsPage() {
   const liveActiveUsersRef = useRef<number | null>(null);
   const consecutiveZeroRef = useRef(0);
 
+  const [conversionsCounts, setConversionsCounts] = useState<{
+    lead_submit: number;
+    call_click: number;
+  } | null>(null);
+
   const POLL_FAST_MS = 20_000;  // when there's activity: update every 20s (feels faster)
   const POLL_SLOW_MS = 60_000; // when idle (0 users): poll every 60s (fewer requests)
 
@@ -188,6 +193,27 @@ export default function AnalyticsPage() {
       if (!hasFreshCache) setData(null);
     } finally {
       setLoading(false);
+    }
+  }, [startDate, endDate]);
+
+  const fetchConversions = useCallback(async () => {
+    const auth = getFirebaseAuth();
+    const user = auth.currentUser;
+    if (!user) return;
+    const token = await user.getIdToken();
+    try {
+      const res = await fetch(
+        `/api/control-centre/analytics/conversions?startDate=${startDate}&endDate=${endDate}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const json = (await res.json()) as { ok: boolean; lead_submit?: number; call_click?: number };
+      if (res.ok && json.ok && typeof json.lead_submit === "number" && typeof json.call_click === "number") {
+        setConversionsCounts({ lead_submit: json.lead_submit, call_click: json.call_click });
+      } else {
+        setConversionsCounts(null);
+      }
+    } catch {
+      setConversionsCounts(null);
     }
   }, [startDate, endDate]);
 
@@ -243,7 +269,8 @@ export default function AnalyticsPage() {
       setLoading(false);
     }
     fetchData();
-  }, [fetchData, startDate, endDate]);
+    fetchConversions();
+  }, [fetchData, fetchConversions, startDate, endDate]);
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -316,8 +343,10 @@ export default function AnalyticsPage() {
   const devices = data?.ok ? data.devices ?? [] : [];
   const events = data?.ok ? data.events ?? [] : [];
 
-  const formSubmissions = events.find((e) => e.eventName === "lead_submit")?.eventCount ?? 0;
-  const phoneCalls = events.find((e) => e.eventName === "call_click")?.eventCount ?? 0;
+  const formSubmissions =
+    conversionsCounts?.lead_submit ?? events.find((e) => e.eventName === "lead_submit")?.eventCount ?? 0;
+  const phoneCalls =
+    conversionsCounts?.call_click ?? events.find((e) => e.eventName === "call_click")?.eventCount ?? 0;
   const totalConversions = formSubmissions + phoneCalls;
 
   return (
@@ -422,7 +451,16 @@ export default function AnalyticsPage() {
             className={`transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}
             aria-label="Conversions"
           >
-            <h2 className="mb-3 text-sm font-semibold text-neutral-700">Conversions</h2>
+            <div className="mb-3 flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+              <h2 className="text-sm font-semibold text-neutral-700">Conversions</h2>
+              <p className="text-xs text-neutral-500">
+                {conversionsCounts != null
+                  ? "Live — updates as soon as forms are sent or calls are clicked."
+                  : loading
+                    ? "Loading…"
+                    : "From GA4 (can take 24–48h)."}
+              </p>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-violet-700">
@@ -430,7 +468,7 @@ export default function AnalyticsPage() {
                   <span className="text-xs font-semibold uppercase tracking-wider">Form submissions</span>
                 </div>
                 <div className="mt-2 min-h-[2rem]">
-                  {loading ? (
+                  {loading && conversionsCounts == null ? (
                     <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
                   ) : (
                     <p className="tabular-nums text-2xl font-bold text-neutral-900">
@@ -446,7 +484,7 @@ export default function AnalyticsPage() {
                   <span className="text-xs font-semibold uppercase tracking-wider">Phone calls</span>
                 </div>
                 <div className="mt-2 min-h-[2rem]">
-                  {loading ? (
+                  {loading && conversionsCounts == null ? (
                     <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
                   ) : (
                     <p className="tabular-nums text-2xl font-bold text-neutral-900">
@@ -462,7 +500,7 @@ export default function AnalyticsPage() {
                   <span className="text-xs font-semibold uppercase tracking-wider">Total conversions</span>
                 </div>
                 <div className="mt-2 min-h-[2rem]">
-                  {loading ? (
+                  {loading && conversionsCounts == null ? (
                     <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
                   ) : (
                     <p className="tabular-nums text-2xl font-bold text-neutral-900">

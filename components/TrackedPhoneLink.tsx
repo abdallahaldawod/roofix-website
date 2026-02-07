@@ -18,11 +18,26 @@ export default function TrackedPhoneLink({
   className,
   ...rest
 }: TrackedPhoneLinkProps) {
+  const handleClick = () => {
+    trackCallClick(location);
+    const payload = JSON.stringify({ type: "call_click", location });
+    if (typeof navigator.sendBeacon === "function") {
+      navigator.sendBeacon("/api/conversion", new Blob([payload], { type: "application/json" }));
+    } else {
+      fetch("/api/conversion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  };
+
   return (
     <a
       href={href}
       className={className}
-      onClick={() => trackCallClick(location)}
+      onClick={handleClick}
       {...rest}
     >
       {children}
