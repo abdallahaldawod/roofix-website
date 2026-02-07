@@ -26,7 +26,7 @@ function LoginForm() {
       const auth = getFirebaseAuth();
       await setPersistence(auth, browserSessionPersistence);
       await signInWithEmailAndPassword(auth, email, password);
-      router.replace(base || "/home");
+      router.replace(base ? `${base}/` : "/");
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed.";
