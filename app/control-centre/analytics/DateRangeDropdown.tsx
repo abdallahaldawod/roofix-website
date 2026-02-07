@@ -1,9 +1,11 @@
 "use client";
 
+import { formatDisplayDateSydney, getDateInSydneyOffset, getTodayInSydney } from "@/lib/sydney-date";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 const PRESETS = [
+  { label: "Today", value: "1d" as const },
   { label: "Last 7 days", value: "7d" as const },
   { label: "Last 30 days", value: "30d" as const },
   { label: "Last 90 days", value: "90d" as const },
@@ -17,18 +19,19 @@ function formatYMD(d: Date): string {
 }
 
 function getPresetRange(preset: (typeof PRESETS)[number]["value"]) {
-  const end = new Date();
-  const start = new Date();
-  if (preset === "7d") start.setDate(start.getDate() - 7);
-  else if (preset === "30d") start.setDate(start.getDate() - 30);
-  else start.setDate(start.getDate() - 90);
-  return { startDate: formatYMD(start), endDate: formatYMD(end) };
+  const end = getTodayInSydney();
+  if (preset === "1d") return { startDate: end, endDate: end };
+  if (preset === "7d") return { startDate: getDateInSydneyOffset(-7), endDate: end };
+  if (preset === "30d") return { startDate: getDateInSydneyOffset(-30), endDate: end };
+  return { startDate: getDateInSydneyOffset(-90), endDate: end };
 }
 
 function getPresetFromRange(startDate: string, endDate: string): (typeof PRESETS)[number]["value"] | null {
+  const r1 = getPresetRange("1d");
   const r7 = getPresetRange("7d");
   const r30 = getPresetRange("30d");
   const r90 = getPresetRange("90d");
+  if (startDate === r1.startDate && endDate === r1.endDate) return "1d";
   if (startDate === r7.startDate && endDate === r7.endDate) return "7d";
   if (startDate === r30.startDate && endDate === r30.endDate) return "30d";
   if (startDate === r90.startDate && endDate === r90.endDate) return "90d";
@@ -36,12 +39,7 @@ function getPresetFromRange(startDate: string, endDate: string): (typeof PRESETS
 }
 
 function formatDisplayDate(s: string): string {
-  const d = new Date(s + "T12:00:00");
-  const day = d.getDate();
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const month = months[d.getMonth()];
-  const year = d.getFullYear();
-  return `${day} ${month} ${year}`;
+  return formatDisplayDateSydney(s);
 }
 
 /** Human-readable label for the current range (e.g. "Last 7 days" or "1 Jan 2026 – 7 Feb 2026") */

@@ -2,17 +2,15 @@
  * Instant conversion tracking (form submissions, call clicks) in Firestore.
  * Used so the Analytics dashboard can show counts without GA4’s 24–48h delay.
  * Server-only; writes to collection "conversions".
+ * Dates are stored in Australia/Sydney so they match the analytics date range.
  */
 
 import { getAdminFirestore } from "@/lib/firebase/admin";
+import { getTodayInSydney } from "@/lib/sydney-date";
 
 export type ConversionType = "lead_submit" | "call_click";
 
 const CONVERSIONS_COLLECTION = "conversions";
-
-function dateString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 /**
  * Record a conversion event. No-op if Firestore is not configured.
@@ -27,7 +25,7 @@ export async function recordConversion(
   try {
     await db.collection(CONVERSIONS_COLLECTION).add({
       type,
-      date: dateString(),
+      date: getTodayInSydney(),
       createdAt: new Date(),
       ...(location && { location }),
     });

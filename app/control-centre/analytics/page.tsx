@@ -23,6 +23,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { getDateInSydneyOffset, getTodayInSydney } from "@/lib/sydney-date";
 import { DateRangeDropdown, getRangeLabel } from "./DateRangeDropdown";
 
 type Ga4Summary = {
@@ -55,7 +56,7 @@ type ApiResponse = {
   error?: string;
 };
 
-/** Date as YYYY-MM-DD in local timezone (so "today" is the user's actual day) */
+/** Date as YYYY-MM-DD (used for date math; display uses Sydney via getRangeLabel). */
 function formatDateYMD(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -64,12 +65,9 @@ function formatDateYMD(d: Date): string {
 }
 
 function getInitialDateRange(): { startDate: string; endDate: string } {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - 7);
   return {
-    startDate: formatDateYMD(start),
-    endDate: formatDateYMD(end),
+    startDate: getDateInSydneyOffset(-7),
+    endDate: getTodayInSydney(),
   };
 }
 
