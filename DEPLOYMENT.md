@@ -17,6 +17,19 @@ In [Google Cloud Console](https://console.cloud.google.com/) â†’ **Security** â†
 
 Use the **same** Firebase project as local (`roofix-768a5`). Copy values from your `.env.local` if you prefer.
 
+**Grant App Hosting access to secrets:** If you created secrets in the Cloud Console (instead of `firebase apphosting:secrets:set`), the App Hosting backend must be granted access. From the project root, run for each secret name:
+
+```bash
+firebase apphosting:secrets:grantaccess RESEND_API_KEY --project roofix-768a5
+firebase apphosting:secrets:grantaccess GOOGLE_PLACES_API_KEY --project roofix-768a5
+firebase apphosting:secrets:grantaccess FIREBASE_SERVICE_ACCOUNT_KEY --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_API_KEY --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID --project roofix-768a5
+firebase apphosting:secrets:grantaccess NEXT_PUBLIC_FIREBASE_APP_ID --project roofix-768a5
+```
+
+Then redeploy. See [Configure secret parameters](https://firebase.google.com/docs/app-hosting/configure#secret-parameters).
+
 ## 2. Deploy Firestore and Storage rules
 
 From the project root:
