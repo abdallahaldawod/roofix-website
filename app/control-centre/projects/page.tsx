@@ -23,6 +23,7 @@ const PROJECTS_COLLECTION = "projects";
 const CONFIG_COLLECTION = "config";
 const PROJECT_FILTERS_DOC = "projectFilters";
 const SLUG_REGEX = /^[a-z0-9-]+$/;
+const SLUG_URL_HINT = "/projects/[slug]";
 
 const DEFAULT_FILTER_CATEGORIES: ProjectFilterCategory[] = [
   { value: "roofing", label: "Roofing" },
@@ -451,7 +452,7 @@ export default function ControlCentreProjectsPage() {
         Changes here are saved to Firestore and appear on the public website.
       </p>
 
-      {/* Project filter tabs (All, Roofing, Gutters, Repairs) shown on /projects */}
+      {/* Project filter tabs (All, Roofing, Gutters, Repairs) shown on the projects page */}
       <section className="mt-4 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm sm:mt-6 sm:p-4">
         <div>
           <h2 className="text-sm font-semibold text-neutral-900">Project filter tabs</h2>
@@ -467,7 +468,7 @@ export default function ControlCentreProjectsPage() {
               {filterCategories.map((cat, index) => (
                 <div
                   key={cat.value}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/50 p-2 sm:flex-nowrap"
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-100 p-2 sm:flex-nowrap"
                 >
                   <span className="text-neutral-400" aria-hidden>
                     <GripVertical className="h-4 w-4" />
@@ -594,7 +595,7 @@ export default function ControlCentreProjectsPage() {
                   <span className="font-medium text-neutral-600">URL slug:</span>{" "}
                   <span className="font-mono">{(p.slug ?? p.id) || "—"}</span>
                   {" · "}
-                  <span className="font-mono">/projects/{(p.slug ?? p.id) || p.id}</span>
+                  <span className="font-mono">{`${SLUG_URL_HINT.replace("[slug]", (p.slug ?? p.id) || p.id)}`}</span>
                 </p>
               </div>
               <div className="flex shrink-0 gap-2 self-end sm:self-center">
@@ -624,14 +625,25 @@ export default function ControlCentreProjectsPage() {
       )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 shadow-lg sm:rounded-xl sm:p-6">
-            <h2 className="text-lg font-semibold text-neutral-900">
-              {creating ? "New project" : "Edit project"}
-            </h2>
-            <div className="mt-4 space-y-4">
+        <div className="fixed inset-0 z-50 flex flex-col md:items-center md:justify-center md:p-6" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white md:max-h-[90vh] md:w-full md:max-w-4xl md:flex-initial md:rounded-xl md:shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-3 sm:px-6">
+              <h2 className="text-xl font-semibold text-neutral-900">
+                {creating ? "New project" : "Edit project"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => { setCreating(false); setEditing(null); }}
+                className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <div className="mx-auto max-w-2xl space-y-5">
               <div>
-                <label className="block text-sm font-medium text-neutral-700">Project ID / URL slug</label>
+                <label className="block text-sm font-medium text-neutral-700">{"Project ID / URL slug"}</label>
                 <div className="mt-1 flex flex-col gap-2 sm:flex-row">
                   <input
                     type="text"
@@ -644,18 +656,17 @@ export default function ControlCentreProjectsPage() {
                     placeholder={creating ? "Auto-generated" : "e.g. project1"}
                     className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
                   />
-                  {creating && (
-                    <button
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, slug: generateProjectId() }))}
-                      className="shrink-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100 sm:py-2"
-                    >
-                      Regenerate
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, slug: generateProjectId() }))}
+                    className="shrink-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100 sm:py-2"
+                    title="Generate new random slug"
+                  >
+                    Regenerate
+                  </button>
                 </div>
                 <p className="mt-0.5 text-xs text-neutral-500">
-                  Used as document ID and in URL: /projects/[slug]. Lowercase letters, numbers, hyphens only.
+                  Used as document ID and in URL: <span className="font-mono">{SLUG_URL_HINT}</span>. Lowercase letters, numbers, hyphens only.
                 </p>
               </div>
               <div>
@@ -751,8 +762,6 @@ export default function ControlCentreProjectsPage() {
                     className="mt-0.5 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
                   />
                 </div>
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-neutral-700">Description</label>
                 <textarea
@@ -804,7 +813,7 @@ export default function ControlCentreProjectsPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-neutral-200 pt-6">
               <button
                 type="button"
                 onClick={() => { setCreating(false); setEditing(null); }}
@@ -821,6 +830,8 @@ export default function ControlCentreProjectsPage() {
               >
                 {saving ? "Saving…" : creating ? "Create" : "Save"}
               </button>
+            </div>
+              </div>
             </div>
           </div>
         </div>

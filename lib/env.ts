@@ -16,7 +16,7 @@ export function getGooglePlacesApiKey(): string | undefined {
   return process.env.GOOGLE_PLACES_API_KEY;
 }
 
-/** Resend API key (contact form). Keys start with re_. Strips newlines, quotes, and non-key chars. */
+/** Resend API key (contact form). Keys start with re_. Strips BOM, newlines, surrounding quotes. */
 export function getResendApiKey(): string | undefined {
   // In dev, ensure .env.local is loaded now (Next.js may not have injected it into this runtime yet)
   if (typeof window === "undefined" && process.env.NODE_ENV === "development") {
@@ -24,8 +24,6 @@ export function getResendApiKey(): string | undefined {
   }
   const v = process.env.RESEND_API_KEY;
   if (v == null || typeof v !== "string") return undefined;
-  const trimmed = v.replace(/\uFEFF/g, "").replace(/[\r\n]/g, "").trim().replace(/^["']|["']$/g, "").trim();
-  // Resend keys are re_ + letters, numbers, underscore only
-  const key = trimmed.replace(/[^a-zA-Z0-9_]/g, "");
-  return key || undefined;
+  const key = v.replace(/\uFEFF/g, "").replace(/[\r\n]/g, "").trim().replace(/^["']|["']$/g, "").trim();
+  return key.length > 0 ? key : undefined;
 }

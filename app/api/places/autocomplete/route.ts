@@ -43,6 +43,7 @@ export async function GET(request: Request) {
     input: q,
     key,
     components: "country:au",
+    types: "address",
   });
   const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`;
 

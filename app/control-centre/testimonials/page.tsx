@@ -11,9 +11,18 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase/client";
+import { getFirebaseAuth } from "@/lib/firebase/client";
 import { refreshPublicSiteCache } from "../actions";
 import type { Testimonial } from "@/lib/firestore-types";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Download } from "lucide-react";
+
+type GoogleReview = {
+  reviewId: string;
+  quote: string;
+  author: string;
+  rating: number;
+  createTime: string | null;
+};
 
 const TESTIMONIALS_COLLECTION = "testimonials";
 
@@ -39,6 +48,10 @@ export default function ControlCentreTestimonialsPage() {
     location: "",
     rating: 5,
   });
+  const [googleReviews, setGoogleReviews] = useState<GoogleReview[]>([]);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [addingReviewId, setAddingReviewId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -133,6 +146,62 @@ export default function ControlCentreTestimonialsPage() {
     }
   }
 
+  async function fetchGoogleReviews() {
+    setGoogleError(null);
+    setGoogleLoading(true);
+    setGoogleReviews([]);
+    try {
+      const auth = getFirebaseAuth();
+      const user = auth.currentUser;
+      if (!user) {
+        setGoogleError("Sign in required.");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch("/api/control-centre/google-reviews", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        reviews?: GoogleReview[];
+        error?: string;
+      };
+      if (!res.ok || !json.ok) {
+        setGoogleError(json.error ?? `Error ${res.status}`);
+        return;
+      }
+      setGoogleReviews(json.reviews ?? []);
+    } catch (e) {
+      setGoogleError(e instanceof Error ? e.message : "Failed to fetch reviews.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  async function addGoogleReviewAsTestimonial(review: GoogleReview) {
+    if (!review.quote.trim() || !review.author.trim()) return;
+    setAddingReviewId(review.reviewId);
+    try {
+      const db = getFirestoreDb();
+      await addDoc(collection(db, TESTIMONIALS_COLLECTION), {
+        quote: review.quote.trim(),
+        author: review.author.trim(),
+        location: null,
+        rating: review.rating,
+        order: testimonials.length,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await load();
+      await refreshPublicSiteCache();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to add testimonial.");
+    } finally {
+      setAddingReviewId(null);
+    }
+  }
+
   const showForm = creating || editing;
 
   return (
@@ -142,12 +211,65 @@ export default function ControlCentreTestimonialsPage() {
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2 sm:mt-6">
         <button
           type="button"
+          onClick={fetchGoogleReviews}
+          disabled={googleLoading}
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          {googleLoading ? "Fetching…" : "Import from Google Business"}
+        </button>
+        <button
+          type="button"
           onClick={openCreate}
           className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
         >
           <Plus className="h-4 w-4" /> Add testimonial
         </button>
       </div>
+
+      {/* Google Business Profile import */}
+      {(googleError || googleReviews.length > 0) && (
+        <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-neutral-900">Import from Google Business Profile</h2>
+          {googleError && (
+            <p className="mt-2 text-sm text-amber-700">{googleError}</p>
+          )}
+          {googleReviews.length > 0 && (
+            <ul className="mt-3 space-y-3">
+              {googleReviews.map((r) => (
+                <li
+                  key={r.reviewId}
+                  className="flex flex-col gap-2 rounded-lg border border-neutral-100 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-neutral-900">&ldquo;{r.quote.slice(0, 120)}{r.quote.length > 120 ? "…" : ""}&rdquo;</p>
+                    <p className="mt-1 flex items-center gap-1 text-sm text-neutral-500">
+                      <span className="flex gap-0.5" aria-label={`${r.rating} stars`}>
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <Star
+                            key={i}
+                            className={`h-4 w-4 ${i <= r.rating ? "fill-amber-400 text-amber-400" : "text-neutral-200"}`}
+                            aria-hidden
+                          />
+                        ))}
+                      </span>
+                      — {r.author}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addGoogleReviewAsTestimonial(r)}
+                    disabled={addingReviewId === r.reviewId}
+                    className="shrink-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                  >
+                    {addingReviewId === r.reviewId ? "Adding…" : "Add to testimonials"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {loading ? (
         <p className="mt-4 text-neutral-500 sm:mt-6">Loading…</p>

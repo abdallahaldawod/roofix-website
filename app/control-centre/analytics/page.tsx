@@ -10,6 +10,8 @@ import {
   MousePointer,
   FileText,
   Radio,
+  Phone,
+  Send,
 } from "lucide-react";
 import {
   ComposedChart,
@@ -21,6 +23,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { DateRangeDropdown, getRangeLabel } from "./DateRangeDropdown";
 
 type Ga4Summary = {
   activeUsers: number;
@@ -60,12 +63,10 @@ function formatDateYMD(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function getDateRange(preset: "7d" | "28d" | "90d"): { startDate: string; endDate: string } {
+function getInitialDateRange(): { startDate: string; endDate: string } {
   const end = new Date();
   const start = new Date();
-  if (preset === "7d") start.setDate(start.getDate() - 7);
-  else if (preset === "28d") start.setDate(start.getDate() - 28);
-  else start.setDate(start.getDate() - 90);
+  start.setDate(start.getDate() - 7);
   return {
     startDate: formatDateYMD(start),
     endDate: formatDateYMD(end),
@@ -105,19 +106,17 @@ function formatChartDateLong(dateStr: string): string {
   return `${day} ${month} ${y}`;
 }
 
-const PRESETS = [
-  { label: "Last 7 days", value: "7d" as const },
-  { label: "Last 28 days", value: "28d" as const },
-  { label: "Last 90 days", value: "90d" as const },
-];
-
 const CACHE_KEY = "cc-analytics-cache";
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
-function getCached(preset: string): ApiResponse | null {
+function getCacheKey(startDate: string, endDate: string): string {
+  return `${startDate}-${endDate}`;
+}
+
+function getCached(key: string): ApiResponse | null {
   if (typeof sessionStorage === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(`${CACHE_KEY}-${preset}`);
+    const raw = sessionStorage.getItem(`${CACHE_KEY}-${key}`);
     if (!raw) return null;
     const { data, ts } = JSON.parse(raw) as { data: ApiResponse; ts: number };
     if (Date.now() - ts > CACHE_TTL_MS || !data?.ok) return null;
@@ -127,17 +126,18 @@ function getCached(preset: string): ApiResponse | null {
   }
 }
 
-function setCached(preset: string, data: ApiResponse) {
+function setCached(key: string, data: ApiResponse) {
   if (typeof sessionStorage === "undefined" || !data?.ok) return;
   try {
-    sessionStorage.setItem(`${CACHE_KEY}-${preset}`, JSON.stringify({ data, ts: Date.now() }));
+    sessionStorage.setItem(`${CACHE_KEY}-${key}`, JSON.stringify({ data, ts: Date.now() }));
   } catch {
     // ignore
   }
 }
 
 export default function AnalyticsPage() {
-  const [preset, setPreset] = useState<"7d" | "28d" | "90d">("7d");
+  const [dateRange, setDateRange] = useState(getInitialDateRange);
+  const { startDate, endDate } = dateRange;
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +155,8 @@ export default function AnalyticsPage() {
   const POLL_SLOW_MS = 60_000; // when idle (0 users): poll every 60s (fewer requests)
 
   const fetchData = useCallback(async () => {
-    const cached = getCached(preset);
+    const cacheKey = getCacheKey(startDate, endDate);
+    const cached = getCached(cacheKey);
     const hasFreshCache = cached !== null;
     if (!hasFreshCache) {
       setLoading(true);
@@ -169,7 +170,6 @@ export default function AnalyticsPage() {
       return;
     }
     const token = await user.getIdToken();
-    const { startDate, endDate } = getDateRange(preset);
     const url = `/api/control-centre/analytics?startDate=${startDate}&endDate=${endDate}`;
     try {
       const res = await fetch(url, {
@@ -181,7 +181,7 @@ export default function AnalyticsPage() {
         setData(null);
       } else {
         setData(json);
-        setCached(preset, json);
+        setCached(cacheKey, json);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -189,7 +189,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [preset]);
+  }, [startDate, endDate]);
 
   const fetchLiveActiveUsers = useCallback(async () => {
     const auth = getFirebaseAuth();
@@ -236,13 +236,14 @@ export default function AnalyticsPage() {
   }, [liveRange]);
 
   useEffect(() => {
-    const cached = getCached(preset);
+    const cacheKey = getCacheKey(startDate, endDate);
+    const cached = getCached(cacheKey);
     if (cached) {
       setData(cached);
       setLoading(false);
     }
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, startDate, endDate]);
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -304,8 +305,8 @@ export default function AnalyticsPage() {
         .map((r) => ({ ...r, label: formatChartDate(r.date), labelLong: formatChartDateLong(r.date) }))
         .sort((a, b) => a.date.localeCompare(b.date))
     : [];
-  const { startDate, endDate } = getDateRange(preset);
   const allDates = getDatesInRange(startDate, endDate);
+  const rangeLabel = getRangeLabel(startDate, endDate);
   const byDate = allDates.map((date) => {
     const row = byDateRaw.find((r) => r.date === date);
     return row ?? { date, activeUsers: 0, sessions: 0, screenPageViews: 0, label: formatChartDate(date), labelLong: formatChartDateLong(date) };
@@ -314,6 +315,10 @@ export default function AnalyticsPage() {
   const topSources = data?.ok ? data.topSources ?? [] : [];
   const devices = data?.ok ? data.devices ?? [] : [];
   const events = data?.ok ? data.events ?? [] : [];
+
+  const formSubmissions = events.find((e) => e.eventName === "lead_submit")?.eventCount ?? 0;
+  const phoneCalls = events.find((e) => e.eventName === "call_click")?.eventCount ?? 0;
+  const totalConversions = formSubmissions + phoneCalls;
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-6">
@@ -328,20 +333,11 @@ export default function AnalyticsPage() {
           <p className="mt-1 text-sm text-neutral-500">GA4 metrics from your property</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-lg border border-neutral-200 bg-white p-1">
-            {PRESETS.map((p) => (
-              <button
-                key={p.value}
-                type="button"
-                onClick={() => setPreset(p.value)}
-                className={`min-h-[40px] rounded-md px-3 py-2 text-sm font-medium transition-colors sm:py-1.5 ${
-                  preset === p.value ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <DateRangeDropdown
+            startDate={startDate}
+            endDate={endDate}
+            onRangeChange={(range) => setDateRange({ startDate: range.startDate, endDate: range.endDate })}
+          />
         </div>
       </header>
 
@@ -421,6 +417,64 @@ export default function AnalyticsPage() {
       {/* Show dashboard whenever we have summary (stay visible during refresh); animate updates */}
       {summary && (
         <>
+          {/* Conversions: form submissions + phone calls */}
+          <section
+            className={`transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}
+            aria-label="Conversions"
+          >
+            <h2 className="mb-3 text-sm font-semibold text-neutral-700">Conversions</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-violet-700">
+                  <Send className="h-5 w-5" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Form submissions</span>
+                </div>
+                <div className="mt-2 min-h-[2rem]">
+                  {loading ? (
+                    <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
+                  ) : (
+                    <p className="tabular-nums text-2xl font-bold text-neutral-900">
+                      {formSubmissions.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-500">Contact form sent (lead_submit)</p>
+              </div>
+              <div className="rounded-xl border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-blue-700">
+                  <Phone className="h-5 w-5" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Phone calls</span>
+                </div>
+                <div className="mt-2 min-h-[2rem]">
+                  {loading ? (
+                    <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
+                  ) : (
+                    <p className="tabular-nums text-2xl font-bold text-neutral-900">
+                      {phoneCalls.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-500">Call button clicked (call_click)</p>
+              </div>
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm sm:col-span-2 lg:col-span-1">
+                <div className="flex items-center gap-2 text-neutral-600">
+                  <TrendingUp className="h-5 w-5" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Total conversions</span>
+                </div>
+                <div className="mt-2 min-h-[2rem]">
+                  {loading ? (
+                    <div className="analytics-value-skeleton h-8 w-16" aria-hidden />
+                  ) : (
+                    <p className="tabular-nums text-2xl font-bold text-neutral-900">
+                      {totalConversions.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-500">Form + call in selected period</p>
+              </div>
+            </div>
+          </section>
+
           <section
             className={`grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`}
             aria-label="Summary metrics"
@@ -451,13 +505,11 @@ export default function AnalyticsPage() {
             />
           </section>
 
-          <section className={`min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`} aria-label={`Active users over time, ${preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}`}>
+          <section className={`min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm transition-opacity duration-200 ${loading ? "opacity-70" : "opacity-100"}`} aria-label={`Active users over time, ${rangeLabel}`}>
             <div className="border-b border-neutral-100 bg-neutral-50/80 px-3 py-2 sm:px-4 sm:py-3">
               <h2 className="text-sm font-semibold text-neutral-700">
                 Active users over time
-                <span className="ml-2 font-normal text-neutral-500">
-                  {preset === "7d" ? "Last 7 days" : preset === "28d" ? "Last 28 days" : "Last 90 days"}
-                </span>
+                <span className="ml-2 font-normal text-neutral-500">{rangeLabel}</span>
               </h2>
             </div>
             <div className="h-56 px-2 py-3 sm:h-80 sm:px-4 sm:py-4">
@@ -466,7 +518,7 @@ export default function AnalyticsPage() {
               ) : byDate.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart
-                    key={`chart-${preset}-${byDate.length}`}
+                    key={`chart-${startDate}-${endDate}-${byDate.length}`}
                     data={byDate}
                     margin={{ top: 16, right: 16, left: 0, bottom: byDate.length > 14 ? 36 : 8 }}
                   >

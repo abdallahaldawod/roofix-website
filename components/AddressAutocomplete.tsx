@@ -2,8 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-const DEBOUNCE_MS = 300;
+const DEBOUNCE_MS = 180;
 const MIN_QUERY_LENGTH = 3;
+const CACHE_MAX_ENTRIES = 80;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 type Prediction = { description: string; place_id: string };
 
@@ -49,12 +51,23 @@ export default function AddressAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const cacheRef = useRef<Map<string, { predictions: Prediction[]; ts: number }>>(new Map());
 
   useEffect(() => {
     if (valueProp !== undefined) setInputValue(valueProp);
   }, [valueProp]);
 
   const fetchPredictions = useCallback(async (q: string) => {
+    const cacheKey = q.toLowerCase().trim();
+    const cached = cacheRef.current.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      setPredictions(cached.predictions);
+      setHighlightIndex(-1);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     setLoading(true);
@@ -70,8 +83,18 @@ export default function AddressAutocomplete({
         setError((data.details as string) ?? data.error ?? "Something went wrong");
         return;
       }
-      setPredictions(data.predictions ?? []);
+      const list = data.predictions ?? [];
+      setPredictions(list);
       setHighlightIndex(-1);
+
+      if (list.length > 0) {
+        const map = cacheRef.current;
+        if (map.size >= CACHE_MAX_ENTRIES) {
+          const firstKey = map.keys().next().value;
+          if (firstKey != null) map.delete(firstKey);
+        }
+        map.set(cacheKey, { predictions: list, ts: Date.now() });
+      }
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       setPredictions([]);

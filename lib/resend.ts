@@ -100,10 +100,12 @@ export async function sendContactEmail(
   console.error("[Resend] Send failed:", JSON.stringify({ code, message: msg, name: code }, null, 2));
 
   if (code === "invalid_api_key" || code === "missing_api_key" || /api key/i.test(msg)) {
+    const isProd = process.env.NODE_ENV === "production";
     return {
       ok: false,
-      error:
-        "Resend API key was rejected. Create a new key at https://resend.com/api-keys, set RESEND_API_KEY=re_xxx in .env.local (no quotes), and restart the dev server.",
+      error: isProd
+        ? "Resend API key was rejected. Update the RESEND_API_KEY secret in Google Cloud Secret Manager to a new key from https://resend.com/api-keys, then redeploy."
+        : "Resend API key was rejected. Create a new key at https://resend.com/api-keys, set RESEND_API_KEY=re_xxx in .env.local (no quotes), and restart the dev server.",
     };
   }
   if (code === "invalid_from_address" || /from|domain|sender/i.test(msg)) {
