@@ -88,9 +88,9 @@ export default function EditPagePage() {
       const res = await fetch(apiUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await parseJsonResponse<{ ok: boolean; content?: unknown; error?: string }>(res);
+      const data = await parseJsonResponse<{ ok: boolean; content?: HomeContent | AboutContent | ContactContent; error?: string }>(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
-      setContent(data.content);
+      setContent(data.content ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load page");
       setContent(getDefaultPageContent(pageId) as HomeContent | AboutContent | ContactContent);
