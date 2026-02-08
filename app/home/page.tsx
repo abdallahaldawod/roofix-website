@@ -4,6 +4,8 @@ import HomePageContent, {
   getLocalBusinessJsonLd,
 } from "../HomePageContent";
 
+// Canonical homepage URL (root). / redirects to /home but we want one canonical for SEO.
+const CANONICAL_HOME_URL = BASE_URL;
 const HOME_URL = `${BASE_URL}/home`;
 
 export const metadata: Metadata = {
@@ -22,7 +24,7 @@ export const metadata: Metadata = {
     title: "Roofix - Roofing & Gutters Sydney | We've got you covered.",
     description:
       "Licensed, insured roofing and gutters across Sydney. New roof, re-roof, roof restoration, gutters, repairs and inspections. Free quotes.",
-    url: HOME_URL,
+    url: CANONICAL_HOME_URL,
     type: "website",
     locale: "en_AU",
   },
@@ -32,13 +34,13 @@ export const metadata: Metadata = {
     description:
       "Licensed, insured roofing and gutters. Free quotes. We've got you covered.",
   },
-  alternates: { canonical: HOME_URL },
+  alternates: { canonical: CANONICAL_HOME_URL },
 };
 
 export const revalidate = 300;
 
 export default async function HomeSlugPage() {
-  const jsonLd = getLocalBusinessJsonLd(HOME_URL);
+  const jsonLd = getLocalBusinessJsonLd(CANONICAL_HOME_URL);
   return (
     <>
       <script

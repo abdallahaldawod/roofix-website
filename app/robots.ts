@@ -7,7 +7,12 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: [],
+      disallow: [
+        "/control-centre",
+        "/control-centre/",
+        "/api/",
+        "/not-found",
+      ],
     },
     sitemap: `${BASE_URL}/sitemap.xml`,
   };
