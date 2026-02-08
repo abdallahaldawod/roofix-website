@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3100",
+    "dev:fresh": "rm -rf .next && next dev -p 3100",
     "dev:webpack": "next dev -p 3100 --webpack",
     "build": "next build",
     "start": "next start",

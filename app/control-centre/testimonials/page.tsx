@@ -232,7 +232,27 @@ export default function ControlCentreTestimonialsPage() {
         <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-neutral-900">Import from Google Business Profile</h2>
           {googleError && (
-            <p className="mt-2 text-sm text-amber-700">{googleError}</p>
+            <div className="mt-2">
+              {googleError.includes("not configured") ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-medium">Google Business Profile is optional.</p>
+                  <p className="mt-1 text-amber-800">
+                    To import reviews, add these to <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">.env.local</code> (see{" "}
+                    <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs">.env.local.example</code> for details):
+                  </p>
+                  <ul className="mt-2 list-inside list-disc space-y-0.5 text-amber-800">
+                    <li><code className="rounded bg-amber-100 px-1 font-mono text-xs">GOOGLE_GBP_ACCOUNT_ID</code> — Business Profile account ID</li>
+                    <li><code className="rounded bg-amber-100 px-1 font-mono text-xs">GOOGLE_GBP_LOCATION_ID</code> — Location ID</li>
+                    <li><code className="rounded bg-amber-100 px-1 font-mono text-xs">GOOGLE_GBP_CLIENT_ID</code>, <code className="rounded bg-amber-100 px-1 font-mono text-xs">GOOGLE_GBP_CLIENT_SECRET</code>, <code className="rounded bg-amber-100 px-1 font-mono text-xs">GOOGLE_GBP_REFRESH_TOKEN</code> — OAuth 2.0 credentials</li>
+                  </ul>
+                  <p className="mt-2 text-amber-800">
+                    Enable the My Business API in Google Cloud and complete the one-time OAuth flow to get a refresh token. Restart the dev server after adding env vars.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-amber-700">{googleError}</p>
+              )}
+            </div>
           )}
           {googleReviews.length > 0 && (
             <ul className="mt-3 space-y-3">

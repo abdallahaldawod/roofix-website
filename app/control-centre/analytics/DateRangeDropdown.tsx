@@ -6,6 +6,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 const PRESETS = [
   { label: "Today", value: "1d" as const },
+  { label: "Yesterday", value: "yesterday" as const },
   { label: "Last 7 days", value: "7d" as const },
   { label: "Last 30 days", value: "30d" as const },
   { label: "Last 90 days", value: "90d" as const },
@@ -21,6 +22,10 @@ function formatYMD(d: Date): string {
 function getPresetRange(preset: (typeof PRESETS)[number]["value"]) {
   const end = getTodayInSydney();
   if (preset === "1d") return { startDate: end, endDate: end };
+  if (preset === "yesterday") {
+    const yesterday = getDateInSydneyOffset(-1);
+    return { startDate: yesterday, endDate: yesterday };
+  }
   if (preset === "7d") return { startDate: getDateInSydneyOffset(-7), endDate: end };
   if (preset === "30d") return { startDate: getDateInSydneyOffset(-30), endDate: end };
   return { startDate: getDateInSydneyOffset(-90), endDate: end };
@@ -28,10 +33,12 @@ function getPresetRange(preset: (typeof PRESETS)[number]["value"]) {
 
 function getPresetFromRange(startDate: string, endDate: string): (typeof PRESETS)[number]["value"] | null {
   const r1 = getPresetRange("1d");
+  const rYesterday = getPresetRange("yesterday");
   const r7 = getPresetRange("7d");
   const r30 = getPresetRange("30d");
   const r90 = getPresetRange("90d");
   if (startDate === r1.startDate && endDate === r1.endDate) return "1d";
+  if (startDate === rYesterday.startDate && endDate === rYesterday.endDate) return "yesterday";
   if (startDate === r7.startDate && endDate === r7.endDate) return "7d";
   if (startDate === r30.startDate && endDate === r30.endDate) return "30d";
   if (startDate === r90.startDate && endDate === r90.endDate) return "90d";
@@ -152,7 +159,7 @@ export function DateRangeDropdown({ startDate, endDate, onRangeChange }: Props) 
         <div className="absolute right-0 top-full z-50 mt-2 w-full min-w-[280px] max-w-[320px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg">
           <div className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Presets</p>
-            <div className="flex flex-wrap gap-1">
+            <div className="grid grid-cols-3 gap-1">
               {PRESETS.map((p) => {
                 const r = getPresetRange(p.value);
                 const active = startDate === r.startDate && endDate === r.endDate;
@@ -164,7 +171,7 @@ export function DateRangeDropdown({ startDate, endDate, onRangeChange }: Props) 
                       onRangeChange(r);
                       setOpen(false);
                     }}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`flex min-w-0 items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
                     }`}
                   >

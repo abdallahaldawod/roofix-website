@@ -1,43 +1,99 @@
 "use client";
 
 import Link from "next/link";
-import { FolderOpen, Wrench, MessageSquare } from "lucide-react";
+import { FileText, FolderOpen, Wrench, MessageSquare, BarChart3 } from "lucide-react";
 import { useControlCentreBase } from "./use-base-path";
 
-const CARD_CONFIG = [
-  { path: "/projects", label: "Projects", icon: FolderOpen, description: "Manage project gallery (title, suburb, description, tags, images)." },
-  { path: "/services", label: "Services", icon: Wrench, description: "Manage services (slug, title, description, content)." },
-  { path: "/testimonials", label: "Testimonials", icon: MessageSquare, description: "Manage customer testimonials." },
+const CONTENT_CARDS = [
+  {
+    path: "/site-pages",
+    label: "Pages",
+    icon: FileText,
+    description: "Edit Home, About and Contact with the live editor.",
+  },
+  {
+    path: "/projects",
+    label: "Projects",
+    icon: FolderOpen,
+    description: "Manage project gallery (title, suburb, description, tags, images).",
+  },
+  {
+    path: "/services",
+    label: "Services",
+    icon: Wrench,
+    description: "Manage services (slug, title, description, content).",
+  },
+  {
+    path: "/testimonials",
+    label: "Testimonials",
+    icon: MessageSquare,
+    description: "Manage customer testimonials and import Google reviews.",
+  },
 ] as const;
 
-type Props = {
-  servicesTitles: string[];
-};
+const INSIGHTS_CARDS = [
+  {
+    path: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    description: "View traffic, conversions and real-time activity.",
+  },
+] as const;
 
-export function DashboardCards({ servicesTitles }: Props) {
+export function DashboardCards() {
   const base = useControlCentreBase();
 
   return (
-    <div className="mt-6 grid gap-3 sm:mt-8 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {CARD_CONFIG.map((card) => {
-        const href = base ? base + card.path : card.path;
-        return (
-          <Link
-            key={card.path}
-            href={href}
-            className="flex min-h-[120px] flex-col rounded-xl border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md active:bg-neutral-50 sm:min-h-0 sm:p-6"
-          >
-            <card.icon className="h-9 w-9 text-accent sm:h-10 sm:w-10" />
-            <h2 className="mt-2 font-semibold text-neutral-900 sm:mt-3">{card.label}</h2>
-            <p className="mt-1 line-clamp-2 text-sm text-neutral-600">{card.description}</p>
-            {card.label === "Services" && servicesTitles.length > 0 && (
-              <p className="mt-2 line-clamp-2 border-t border-neutral-100 pt-2 text-xs font-medium text-neutral-500 sm:mt-3 sm:pt-3">
-                On website: {servicesTitles.join(", ")}
-              </p>
-            )}
-          </Link>
-        );
-      })}
+    <div className="mt-8 space-y-10">
+      {/* Content section */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
+          Content
+        </h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {CONTENT_CARDS.map((card) => {
+            const href = base ? base + card.path : card.path;
+            return (
+              <Link
+                key={card.path}
+                href={href}
+                className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent transition-colors group-hover:bg-accent/25">
+                  <card.icon className="h-5 w-5" />
+                </span>
+                <h3 className="mt-3 font-semibold text-neutral-900">{card.label}</h3>
+                <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{card.description}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Insights section */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
+          Insights
+        </h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {INSIGHTS_CARDS.map((card) => {
+            const href = base ? base + card.path : card.path;
+            return (
+              <Link
+                key={card.path}
+                href={href}
+                className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent transition-colors group-hover:bg-accent/25">
+                  <card.icon className="h-5 w-5" />
+                </span>
+                <h3 className="mt-3 font-semibold text-neutral-900">{card.label}</h3>
+                <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{card.description}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

@@ -4,64 +4,13 @@ import TestimonialCard from "@/components/TestimonialCard";
 import FAQAccordion from "@/components/FAQAccordion";
 import ProjectsSection from "@/components/ProjectsSection";
 import ServicesSection from "@/components/ServicesSection";
-import { getProjects, getTestimonials, getServices } from "@/lib/data";
+import { getProjects, getTestimonials, getServices, getPageContent } from "@/lib/data";
 import { DEFAULT_PROJECTS } from "@/lib/default-projects";
 import { DEFAULT_TESTIMONIALS } from "@/lib/default-testimonials";
+import type { HomeContent } from "@/lib/page-content";
 
 export const PHONE = "0497 777 755";
 export const BASE_URL = "https://roofix.com.au";
-
-export const TRUST_BADGES = [
-  "Licensed & Insured",
-  "10 Year Warranty",
-  "Free Quotes",
-  "5-Star Reviews",
-];
-
-const HOW_IT_WORKS = [
-  {
-    step: 1,
-    title: "Request Quote",
-    description: "Call us or fill in the form. We'll arrange a time that suits you.",
-  },
-  {
-    step: 2,
-    title: "Inspection / Scope",
-    description: "We inspect and provide a clear written quote. No obligation.",
-  },
-  {
-    step: 3,
-    title: "Complete & Warranty",
-    description: "We complete the work to a high standard. Written warranty available.",
-  },
-];
-
-const FAQ_ITEMS = [
-  {
-    question: "Are you licensed and insured?",
-    answer: "Yes. We are fully licensed for roofing and gutter work and carry public liability and other relevant insurance. We can provide certificates on request.",
-  },
-  {
-    question: "How quickly can I get a quote?",
-    answer: "We aim to provide a written quote within 24–48 hours of the inspection. For urgent jobs we can often attend the same or next day.",
-  },
-  {
-    question: "Do you offer warranty on your work?",
-    answer: "Yes. Written warranty available. We stand behind our workmanship and use quality materials with manufacturer warranties where applicable.",
-  },
-  {
-    question: "What areas do you service?",
-    answer: "We service all of Sydney. Contact us to confirm your suburb.",
-  },
-  {
-    question: "Do you do emergency repairs?",
-    answer: "Yes. We offer emergency and urgent roof and gutter repairs. Call now for priority help.",
-  },
-  {
-    question: "What payment options do you accept?",
-    answer: "We accept bank transfer, cheque and card. Payment terms can be discussed at quote stage for larger jobs.",
-  },
-];
 
 export function getLocalBusinessJsonLd(canonicalUrl: string) {
   return {
@@ -87,10 +36,11 @@ export function getLocalBusinessJsonLd(canonicalUrl: string) {
 }
 
 export default async function HomePageContent() {
-  const [projects, testimonials, services] = await Promise.all([
+  const [projects, testimonials, services, content] = await Promise.all([
     getProjects(),
     getTestimonials(),
     getServices(),
+    getPageContent("home").then((c) => c as HomeContent),
   ]);
   const recentProjects =
     projects.length > 0
@@ -145,10 +95,10 @@ export default async function HomePageContent() {
       <section className="border-b border-neutral-700 bg-neutral-900 px-4 py-6 text-white sm:px-6 sm:py-6 lg:px-8 lg:py-6">
         <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <h1 className="text-xl font-bold tracking-tight text-center sm:text-left sm:text-2xl">
-            We&apos;ve got you covered.
+            {content.heroHeadline}
           </h1>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm font-medium text-neutral-300 sm:justify-end sm:gap-6 lg:gap-8">
-            {TRUST_BADGES.map((item) => (
+            {content.heroTrustBadges.map((item) => (
               <span key={item} className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#FFBC00]" />
                 {item}
@@ -168,7 +118,7 @@ export default async function HomePageContent() {
             How It Works
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-neutral-600">
-            Simple, transparent process from quote to completion.
+            {content.howItWorksSubline}
           </p>
           <div className="relative mt-12">
             <div
@@ -180,7 +130,7 @@ export default async function HomePageContent() {
               aria-hidden
             />
             <ul className="flex flex-col gap-8 md:flex-row md:gap-0 md:justify-between">
-              {HOW_IT_WORKS.map((item) => (
+              {content.howItWorks.map((item) => (
                 <li
                   key={item.step}
                   className="relative flex flex-1 flex-row items-start gap-4 text-left md:flex-col md:items-center md:text-center md:px-4"
@@ -203,10 +153,10 @@ export default async function HomePageContent() {
       <section className="bg-neutral-50 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-7xl">
           <h2 className="text-center text-2xl font-bold text-neutral-900 sm:text-3xl">
-            Recent Projects
+            {content.recentProjectsHeadline}
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-neutral-600">
-            A sample of our roofing and gutter work across Sydney.
+            {content.recentProjectsSubline}
           </p>
           <div className="mt-10">
             <ProjectsSection projects={recentProjects} showFilter={false} carouselOnMobile />
@@ -221,10 +171,10 @@ export default async function HomePageContent() {
       <section className="bg-white px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-7xl">
           <h2 className="text-center text-2xl font-bold text-neutral-900 sm:text-3xl">
-            What Our Customers Say
+            {content.testimonialsHeadline}
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-neutral-600">
-            Real feedback from homeowners we&apos;ve worked with.
+            {content.testimonialsSubline}
           </p>
           <div className="mt-10 grid gap-8 sm:grid-cols-3">
             {testimonialList.map((t, i) => (
@@ -244,10 +194,10 @@ export default async function HomePageContent() {
       <section className="bg-neutral-50 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-3xl">
           <h2 className="text-center text-2xl font-bold text-neutral-900 sm:text-3xl">
-            Frequently Asked Questions
+            {content.faqHeadline}
           </h2>
           <div className="mt-10">
-            <FAQAccordion items={FAQ_ITEMS} />
+            <FAQAccordion items={content.faqItems} />
           </div>
         </div>
       </section>
@@ -256,9 +206,9 @@ export default async function HomePageContent() {
       <section className="mb-0 bg-accent px-4 py-4 text-neutral-900 sm:px-6 sm:py-5 lg:px-8 lg:py-5">
         <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="text-center sm:text-left">
-            <h2 className="text-xl font-bold sm:text-2xl">Ready for a Free Quote?</h2>
+            <h2 className="text-xl font-bold sm:text-2xl">{content.ctaHeadline}</h2>
             <p className="mt-0.5 text-sm text-neutral-800 sm:text-base">
-              We&apos;ve got you covered. Get in touch today.
+              {content.ctaSubline}
             </p>
           </div>
           <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
@@ -269,7 +219,7 @@ export default async function HomePageContent() {
             >
               Call {PHONE}
             </TrackedPhoneLink>
-            <CTAButton href="/contact" label="Get a Free Quote" trackQuoteLocation="hero" />
+            <CTAButton href="/contact" label={content.ctaButtonLabel} variant="primaryOutlined" trackQuoteLocation="hero" />
           </div>
         </div>
       </section>

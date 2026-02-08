@@ -12,6 +12,7 @@ import {
   Wrench,
   MessageSquare,
   BarChart3,
+  FileText,
   LogOut,
   Menu,
   X,
@@ -19,10 +20,11 @@ import {
 
 const nav = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/site-pages", label: "Pages", icon: FileText },
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/services", label: "Services", icon: Wrench },
   { path: "/testimonials", label: "Testimonials", icon: MessageSquare },
-  { path: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
 const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes

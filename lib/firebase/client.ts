@@ -5,7 +5,13 @@
  */
 
 import { getApps, initializeApp } from "firebase/app";
-import { getAuth, connectAuthEmulator } from "firebase/auth";
+import {
+  getAuth,
+  initializeAuth,
+  connectAuthEmulator,
+  browserSessionPersistence,
+  type Auth,
+} from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
 
@@ -36,9 +42,17 @@ function getFirebaseApp() {
   return initializeApp(getFirebaseConfig());
 }
 
-export function getFirebaseAuth() {
+export function getFirebaseAuth(): Auth {
   const app = getFirebaseApp();
-  const auth = getAuth(app);
+  // Use session persistence to avoid IndexedDB "Failed to open database" / "invalid digit found in string"
+  // in some environments (Safari, private browsing, or corrupted persistence).
+  const persistence = browserSessionPersistence;
+  let auth: Auth;
+  try {
+    auth = initializeAuth(app, { persistence });
+  } catch {
+    auth = getAuth(app);
+  }
   if (process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST) {
     try {
       connectAuthEmulator(

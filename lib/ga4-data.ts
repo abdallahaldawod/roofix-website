@@ -242,13 +242,18 @@ export async function fetchGa4Analytics(
       events,
     };
   } catch (e) {
-    const { message, code, details } = getErrorDetails(e);
+    const { message, code } = getErrorDetails(e);
     if (process.env.NODE_ENV === "development") {
-      console.warn("[GA4 Data] runReport error:", message, "code:", code, "details:", details);
+      console.warn("[GA4 Data] runReport error:", message, "code:", code);
     }
+    const friendlyError =
+      code === "14" ||
+      /UNAVAILABLE|Name resolution failed|analyticsdata\.googleapis\.com|ENOTFOUND|getaddrinfo/i.test(message)
+        ? "Cannot reach Google Analytics API. Check your network (and firewall) can access analyticsdata.googleapis.com, or try again later."
+        : message;
     return {
       ok: false,
-      error: message,
+      error: friendlyError,
       ga4Code: code,
       ga4Message: message,
     };
@@ -320,9 +325,14 @@ export async function fetchGa4RealtimeActiveUsers(
     if (process.env.NODE_ENV === "development") {
       console.warn("[GA4 Realtime] runRealtimeReport error:", message, "code:", code);
     }
+    const friendlyError =
+      code === "14" ||
+      /UNAVAILABLE|Name resolution failed|analyticsdata\.googleapis\.com|ENOTFOUND|getaddrinfo/i.test(message)
+        ? "Cannot reach Google Analytics API. Check your network (and firewall) can access analyticsdata.googleapis.com, or try again later."
+        : message;
     return {
       ok: false,
-      error: message,
+      error: friendlyError,
       ga4Code: code,
       ga4Message: message,
     };

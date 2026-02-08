@@ -8,10 +8,13 @@
 import { cache } from "react";
 import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase/admin";
 import type { Project, Service, Testimonial } from "@/lib/firestore-types";
+import type { PageContentMap, PageId } from "@/lib/page-content";
+import { getDefaultPageContent } from "@/lib/page-content";
 
 const PROJECTS_COLLECTION = "projects";
 const SERVICES_COLLECTION = "services";
 const TESTIMONIALS_COLLECTION = "testimonials";
+const PAGES_COLLECTION = "pages";
 const CONFIG_COLLECTION = "config";
 const PROJECT_FILTERS_DOC = "projectFilters";
 
@@ -26,10 +29,12 @@ const DEFAULT_PROJECT_FILTER_CATEGORIES: ProjectFilterCategory[] = [
 /** In-memory TTL cache: avoid hitting Firestore on every request. */
 const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const memoryCache = new Map<string, { data: unknown[]; expires: number }>();
+const pageDocCache = new Map<string, { data: unknown; expires: number }>();
 
 /** Call after content changes in control-centre so the next public request sees fresh data. */
 export function invalidateContentCache(): void {
   memoryCache.clear();
+  pageDocCache.clear();
 }
 
 async function getCollectionUncached<T>(collectionId: string): Promise<T[]> {
@@ -166,3 +171,38 @@ export async function getAllServiceSlugs(): Promise<string[]> {
 
 /** Project filter tabs shown on /projects (All + category labels). From Firestore config/projectFilters; same cache as other content. */
 export const getProjectFilterCategories = cache(getProjectFilterCategoriesCached);
+
+/** Single-doc cache for page content. */
+async function getPageContentUncached<K extends PageId>(pageId: K): Promise<PageContentMap[K] | null> {
+  if (!isFirebaseAdminConfigured()) return null;
+  try {
+    const db = getAdminFirestore();
+    if (!db) return null;
+    const snap = await db.collection(PAGES_COLLECTION).doc(pageId).get();
+    const data = snap.data();
+    if (!data || typeof data !== "object") return null;
+    return data as PageContentMap[K];
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("[data] Firestore read failed for pages/", pageId, err);
+    }
+    return null;
+  }
+}
+
+async function getPageContentWithCache<K extends PageId>(pageId: K): Promise<PageContentMap[K] | null> {
+  const key = `${PAGES_COLLECTION}/${pageId}`;
+  const now = Date.now();
+  const entry = pageDocCache.get(key);
+  if (entry && entry.expires > now) return entry.data as PageContentMap[K] | null;
+  const data = await getPageContentUncached(pageId);
+  pageDocCache.set(key, { data, expires: now + MEMORY_CACHE_TTL_MS });
+  return data;
+}
+
+/** Page content for Home, About, Contact. Uses Firestore when set; otherwise returns defaults. */
+export const getPageContent = cache(async (pageId: PageId): Promise<PageContentMap[PageId]> => {
+  const stored = await getPageContentWithCache(pageId);
+  if (stored) return stored as PageContentMap[PageId];
+  return getDefaultPageContent(pageId) as PageContentMap[PageId];
+});

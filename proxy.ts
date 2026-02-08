@@ -32,12 +32,23 @@ function withNoindex(res: NextResponse): NextResponse {
   return res;
 }
 
+/** Allow embedding in iframe when ?preview=1 (for control centre live editor). */
+const PREVIEW_FRAME_ANCESTORS =
+  "'self' https://admin.roofix.com.au http://localhost:3100 https://localhost:3100 http://127.0.0.1:3100";
+
 export function proxy(request: NextRequest) {
   const canonicalRedirect = redirectToCanonicalHost(request);
   if (canonicalRedirect) return canonicalRedirect;
 
   const hostname = getHostname(request);
   const pathname = request.nextUrl.pathname;
+  const isPreview = request.nextUrl.searchParams.get("preview") === "1";
+
+  if (isPreview && (pathname === "/home" || pathname === "/about" || pathname === "/contact")) {
+    const res = NextResponse.next();
+    res.headers.set("Content-Security-Policy", `frame-ancestors ${PREVIEW_FRAME_ANCESTORS}`);
+    return res;
+  }
 
   const isAdminHost =
     hostname === ADMIN_HOST || hostname.endsWith("." + ADMIN_HOST);
@@ -76,6 +87,8 @@ export function proxy(request: NextRequest) {
     }
     if (
       pathname === "/login" ||
+      pathname === "/site-pages" ||
+      pathname.startsWith("/site-pages/") ||
       pathname === "/projects" ||
       pathname === "/services" ||
       pathname === "/testimonials" ||
@@ -98,11 +111,14 @@ export const config = {
   // Explicit paths so proxy runs for www redirect + control-centre rewrites (path-to-regexp doesn't allow lookaheads)
   matcher: [
     "/",
+    "/home",
     "/about",
     "/contact",
     "/control-centre",
     "/control-centre/:path*",
     "/login",
+    "/site-pages",
+    "/site-pages/:path*",
     "/projects",
     "/projects/:path*",
     "/services",

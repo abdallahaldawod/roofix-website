@@ -6,10 +6,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "16mb",
     },
   },
+  // Root redirect / → /home is handled in middleware so admin host can rewrite / → control-centre instead.
   async redirects() {
-    return [
-      { source: "/", destination: "/home", permanent: true },
-    ];
+    return [];
   },
 };
 

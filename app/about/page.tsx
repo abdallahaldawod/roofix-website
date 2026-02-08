@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import CTAButton from "@/components/CTAButton";
 import TrackedPhoneLink from "@/components/TrackedPhoneLink";
+import { getPageContent } from "@/lib/data";
+import type { AboutContent } from "@/lib/page-content";
 
 export const metadata: Metadata = {
   title: "Roofix - Roofing & Gutters",
@@ -18,31 +20,17 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://roofix.com.au/about" },
 };
 
-const VALUES = [
-  {
-    title: "Quality",
-    description: "We use quality materials and work to a high standard so your roof and gutters last.",
-  },
-  {
-    title: "Reliability",
-    description: "We turn up on time, quote clearly, and communicate so you know what to expect.",
-  },
-  {
-    title: "Trust",
-    description: "Licensed, insured and warranty-backed. We stand behind our work.",
-  },
-];
-
-export default function AboutPage() {
+export default async function AboutPage() {
+  const content = (await getPageContent("about")) as AboutContent;
   return (
     <>
       <section className="bg-neutral-900 px-4 py-16 text-white sm:px-6 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            About Roofix
+            {content.heroTitle}
           </h1>
           <p className="mt-4 text-neutral-300">
-            Licensed, insured roofing and gutter specialists you can trust.
+            {content.heroSubline}
           </p>
         </div>
       </section>
@@ -50,29 +38,23 @@ export default function AboutPage() {
       <section className="bg-white px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-3xl">
           <h2 className="text-2xl font-bold text-neutral-900">
-            Who We Are
+            {content.whoWeAreTitle}
           </h2>
-          <p className="mt-4 text-neutral-600">
-            Roofix specialises in roofing and gutters for homes and small
-            commercial properties. We offer new installations, repairs,
-            inspections and maintenance – all carried out by licensed,
-            insured tradespeople who take pride in doing the job right.
-          </p>
-          <p className="mt-4 text-neutral-600">
-            We believe in clear quotes, on-time work and standing behind what we
-            do. Whether you need a full roof replacement, new gutters or a
-            quick repair, we’re here to help.
-          </p>
+          {content.whoWeAreParagraphs.map((p, i) => (
+            <p key={i} className="mt-4 text-neutral-600">
+              {p}
+            </p>
+          ))}
         </div>
       </section>
 
       <section className="bg-neutral-50 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="mx-auto max-w-7xl">
           <h2 className="text-center text-2xl font-bold text-neutral-900">
-            What We Stand For
+            {content.valuesTitle}
           </h2>
           <div className="mt-10 grid gap-8 sm:grid-cols-3">
-            {VALUES.map((v) => (
+            {content.values.map((v) => (
               <div
                 key={v.title}
                 className="rounded-xl border border-neutral-200 bg-white p-6 text-center"
@@ -88,19 +70,19 @@ export default function AboutPage() {
       <section className="bg-white px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="text-2xl font-bold text-neutral-900">
-            Ready to Get Started?
+            {content.ctaTitle}
           </h2>
           <p className="mt-4 text-neutral-600">
-            Get a free quote or give us a call to discuss your project.
+            {content.ctaSubline}
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <CTAButton href="/contact" label="Get a free quote" trackQuoteLocation="about" />
             <TrackedPhoneLink
-              href="tel:0497777755"
+              href={`tel:${content.phone.replace(/\s/g, "")}`}
               location="about"
               className="inline-flex items-center justify-center rounded-lg border-2 border-accent px-5 py-2.5 text-sm font-semibold text-accent hover:bg-accent-light"
             >
-              Call 0497 777 755
+              Call {content.phone}
             </TrackedPhoneLink>
           </div>
         </div>

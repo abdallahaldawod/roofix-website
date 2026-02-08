@@ -16,7 +16,7 @@ const navLinks = [
 
 export default function Footer() {
   return (
-    <footer className="mt-0 border-t border-neutral-200 bg-neutral-900 text-neutral-300">
+    <footer className="mt-0 bg-neutral-900 text-neutral-300">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
         <div className="grid grid-cols-2 gap-8 lg:grid-cols-3">
           <div className="col-span-2 lg:col-span-1">
@@ -35,7 +35,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-white">
+            <h3 className="border-b border-neutral-700 pb-2 text-sm font-semibold uppercase tracking-wider text-white">
               Contact
             </h3>
             <ul className="mt-3 space-y-1 text-sm">
@@ -80,7 +80,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-white">
+            <h3 className="border-b border-neutral-700 pb-2 text-sm font-semibold uppercase tracking-wider text-white">
               Quick links
             </h3>
             <nav className="mt-3 flex flex-col gap-0" aria-label="Footer">
@@ -97,10 +97,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col items-center gap-4 border-t border-neutral-800 pt-8 sm:flex-row sm:justify-between">
-          <p className="text-center text-xs text-neutral-500 sm:text-left">
-            Licensed &amp; insured. Written warranty available.
-          </p>
+        <div className="mt-10 flex flex-col items-center gap-4 border-t border-neutral-800 pt-8 sm:flex-row sm:justify-end">
           <div className="flex gap-4" aria-label="Social links">
             <a
               href="https://www.facebook.com/RoofixRoofingAndGutters"
