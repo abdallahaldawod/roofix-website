@@ -30,7 +30,8 @@ import { getActivityByIdAdmin, updateActivityAdmin, deleteActivityById } from "@
 import { getRuleSetsAdmin } from "@/lib/leads/rule-sets-admin";
 import { incrementScanCountersAdmin } from "@/lib/leads/sources-admin";
 import { writeScanRunAdmin } from "@/lib/leads/scan-runs-admin";
-import type { LeadRuleSet, FsTimestamp } from "@/lib/leads/types";
+import { performHipagesAction } from "@/lib/leads/hipages-action";
+import type { LeadRuleSet, FsTimestamp, TriggerPlatformAction } from "@/lib/leads/types";
 import type { LeadActivityPlatformUpdate } from "@/lib/leads/activity-admin";
 import type { RawExtractedLead } from "./adapter-types";
 import { withTimeout } from "./retry-timeout";
@@ -405,6 +406,38 @@ export async function runBackgroundScan(
                 processResult.decision === "Accept" ? 1 : 0
               );
               imported++;
+
+              // When rule set has a trigger platform action for this decision, press the button on the platform (e.g. hipages).
+              const decisionKey = processResult.decision.toLowerCase() as "accept" | "review" | "reject";
+              const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
+              const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
+              const actionPath = triggerAction && hipagesActions?.[triggerAction];
+              if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
+                try {
+                  const actionResult = await performHipagesAction({
+                    sourceId: source.id,
+                    actionPath: actionPath.trim(),
+                    action: triggerAction,
+                    leadId: processResult.activityId,
+                  });
+                  if (!actionResult.ok) {
+                    logScan("trigger_platform_action_failed", {
+                      sourceId,
+                      activityId: processResult.activityId,
+                      decision: processResult.decision,
+                      action: triggerAction,
+                      error: actionResult.error,
+                      step: actionResult.step,
+                    });
+                  }
+                } catch (actionErr) {
+                  logScan("trigger_platform_action_error", {
+                    sourceId,
+                    activityId: processResult.activityId,
+                    error: actionErr instanceof Error ? actionErr.message : String(actionErr),
+                  });
+                }
+              }
             } catch (importErr) {
               failedImport++;
               logScan("import_lead_failed", {

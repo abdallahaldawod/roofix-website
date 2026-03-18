@@ -151,6 +151,16 @@ export type ScoringRule = { keyword: string; score: number };
 export type ThresholdConfig = { accept: number; review: number; reject: number };
 export type SafetyConfig = { maxLeadsPerDay: number; cooldownMinutes: number };
 
+/** Platform button to press when this trigger fires (e.g. hipages Accept / Decline / Waitlist). */
+export type TriggerPlatformAction = "accept" | "decline" | "waitlist";
+
+/** Per-trigger platform action: when score hits Accept/Review/Reject threshold, optionally press this platform button. */
+export type TriggerPlatformActions = {
+  accept?: TriggerPlatformAction | null;
+  review?: TriggerPlatformAction | null;
+  reject?: TriggerPlatformAction | null;
+};
+
 export type LeadRuleSet = {
   id: string;
   name: string;
@@ -162,6 +172,8 @@ export type LeadRuleSet = {
   scoringRules: ScoringRule[];
   locationFilters: string[];
   thresholds: ThresholdConfig;
+  /** When each score trigger fires, optionally press this platform button (e.g. hipages). */
+  triggerPlatformActions?: TriggerPlatformActions;
   safetyControls: SafetyConfig;
   createdAt: FsTimestamp;
   updatedAt: FsTimestamp;
@@ -177,6 +189,7 @@ export type LeadRuleSetCreate = {
   scoringRules: ScoringRule[];
   locationFilters: string[];
   thresholds: ThresholdConfig;
+  triggerPlatformActions?: TriggerPlatformActions;
   safetyControls: SafetyConfig;
 };
 

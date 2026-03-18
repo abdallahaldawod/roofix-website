@@ -10,12 +10,6 @@ import { useControlCentreBase } from "../use-base-path";
 export type ResolvedSearchParams = Record<string, string | string[] | undefined> | null;
 
 export function LoginForm({ searchParams }: { searchParams: ResolvedSearchParams }) {
-  // #region agent log
-  if (typeof window !== "undefined") {
-    const isResolved = searchParams === null || (typeof searchParams === "object" && typeof (searchParams as Promise<unknown>).then !== "function");
-    fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'LoginForm:mount',message:'next16 searchParams resolved only',data:{isResolved},timestamp:Date.now(),hypothesisId:'next16'})}).catch(()=>{});
-  }
-  // #endregion
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");

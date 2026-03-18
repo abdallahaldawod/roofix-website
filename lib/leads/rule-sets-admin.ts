@@ -27,6 +27,7 @@ function toLeadRuleSet(id: string, d: DocData): LeadRuleSet {
       review: 15,
       reject: 0,
     },
+    triggerPlatformActions: (d.triggerPlatformActions as LeadRuleSet["triggerPlatformActions"]) ?? undefined,
     safetyControls: (d.safetyControls as LeadRuleSet["safetyControls"]) ?? {
       maxLeadsPerDay: 50,
       cooldownMinutes: 30,

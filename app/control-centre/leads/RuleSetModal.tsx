@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, Plus, X } from "lucide-react";
-import type { LeadRuleSet, LeadRuleSetCreate, ScoringRule, ThresholdConfig } from "@/lib/leads/types";
+import type { LeadRuleSet, LeadRuleSetCreate, ScoringRule, ThresholdConfig, TriggerPlatformAction, TriggerPlatformActions } from "@/lib/leads/types";
 import { KeywordChips } from "./KeywordChips";
 
 type RuleSetModalProps = {
@@ -33,7 +33,12 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
   const [excludedKeywords, setExcludedKeywords] = useState<string[]>([]);
   const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [thresholds, setThresholds] = useState<ThresholdConfig>(EMPTY_RULESET.thresholds);
+  const [triggerPlatformActions, setTriggerPlatformActions] = useState<TriggerPlatformActions>({});
   const [saving, setSaving] = useState(false);
+
+  function setTriggerAction(trigger: "accept" | "review" | "reject", value: TriggerPlatformAction | null) {
+    setTriggerPlatformActions((prev) => ({ ...prev, [trigger]: value }));
+  }
 
   useEffect(() => {
     if (editingRuleSet) {
@@ -44,6 +49,7 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
       setExcludedKeywords(editingRuleSet.excludedKeywords);
       setScoringRules(editingRuleSet.scoringRules.length ? editingRuleSet.scoringRules : [{ keyword: "", score: 10 }]);
       setThresholds(editingRuleSet.thresholds);
+      setTriggerPlatformActions(editingRuleSet.triggerPlatformActions ?? {});
     } else {
       setName("");
       setDescription("");
@@ -52,6 +58,7 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
       setExcludedKeywords([]);
       setScoringRules([{ keyword: "", score: 10 }]);
       setThresholds(EMPTY_RULESET.thresholds);
+      setTriggerPlatformActions({});
     }
   }, [editingRuleSet, open]);
 
@@ -86,6 +93,7 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
           scoringRules: validScoringRules,
           locationFilters: editingRuleSet.locationFilters,
           thresholds,
+          triggerPlatformActions: Object.keys(triggerPlatformActions).length ? triggerPlatformActions : undefined,
           safetyControls: editingRuleSet.safetyControls,
         }
       : {
@@ -97,6 +105,7 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
           excludedKeywords,
           scoringRules: validScoringRules,
           thresholds,
+          triggerPlatformActions: Object.keys(triggerPlatformActions).length ? triggerPlatformActions : undefined,
         };
     setSaving(true);
     try {
@@ -194,57 +203,101 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
           </div>
 
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-4">
-            <p className="mb-1.5 text-sm font-medium text-neutral-700">Action when triggered</p>
-            <p className="mb-3 text-xs text-neutral-500">
-              After matching keywords, the lead is scored. Choose what to do for each score range:
+            <p className="mb-1.5 text-sm font-medium text-neutral-700">Triggers (actions by score)</p>
+            <p className="mb-4 text-xs text-neutral-500">
+              When a lead’s score reaches a threshold, run the action below. Example: accept lead if score ≥ 30.
             </p>
-            <ul className="mb-4 space-y-2 text-xs text-neutral-600">
-              <li className="flex items-center gap-2">
-                <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800">Accept</span>
-                <span>Score ≥ threshold → accept lead (e.g. for follow-up)</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">Review</span>
-                <span>Score ≥ threshold but below Accept → manual review</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-800">Reject</span>
-                <span>Score below Review → reject lead</span>
-              </li>
-            </ul>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label htmlFor="threshold-accept" className="block text-xs font-medium text-neutral-600">Accept (score ≥)</label>
-                <input
-                  id="threshold-accept"
-                  type="number"
-                  min={0}
-                  value={thresholds.accept}
-                  onChange={(e) => setThresholds((t) => ({ ...t, accept: parseInt(e.target.value, 10) || 0 }))}
-                  className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                />
+            <div className="space-y-3">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-emerald-800">Accept lead</span>
+                  <span className="text-xs text-neutral-600">when score ≥</span>
+                  <input
+                    id="threshold-accept"
+                    type="number"
+                    min={0}
+                    value={thresholds.accept}
+                    onChange={(e) => setThresholds((t) => ({ ...t, accept: parseInt(e.target.value, 10) || 0 }))}
+                    className="w-16 rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm font-medium text-neutral-900 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                    aria-label="Accept lead when score is at least"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-neutral-600">Press platform button</span>
+                  <select
+                    value={triggerPlatformActions.accept ?? ""}
+                    onChange={(e) => setTriggerAction("accept", (e.target.value || null) as TriggerPlatformAction | null)}
+                    className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs font-medium text-neutral-900 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                    aria-label="Platform button when Accept trigger fires"
+                  >
+                    <option value="">None</option>
+                    <option value="accept">Accept</option>
+                    <option value="waitlist">Join waitlist</option>
+                    <option value="decline">Decline</option>
+                  </select>
+                </div>
               </div>
-              <div>
-                <label htmlFor="threshold-review" className="block text-xs font-medium text-neutral-600">Review (score ≥)</label>
-                <input
-                  id="threshold-review"
-                  type="number"
-                  min={0}
-                  value={thresholds.review}
-                  onChange={(e) => setThresholds((t) => ({ ...t, review: parseInt(e.target.value, 10) || 0 }))}
-                  className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                />
+              <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-amber-800">Send to review</span>
+                  <span className="text-xs text-neutral-600">when score ≥</span>
+                  <input
+                    id="threshold-review"
+                    type="number"
+                    min={0}
+                    value={thresholds.review}
+                    onChange={(e) => setThresholds((t) => ({ ...t, review: parseInt(e.target.value, 10) || 0 }))}
+                    className="w-16 rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm font-medium text-neutral-900 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    aria-label="Send to review when score is at least"
+                  />
+                  <span className="text-xs text-neutral-500">(and below Accept)</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-neutral-600">Press platform button</span>
+                  <select
+                    value={triggerPlatformActions.review ?? ""}
+                    onChange={(e) => setTriggerAction("review", (e.target.value || null) as TriggerPlatformAction | null)}
+                    className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs font-medium text-neutral-900 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    aria-label="Platform button when Review trigger fires"
+                  >
+                    <option value="">None</option>
+                    <option value="accept">Accept</option>
+                    <option value="waitlist">Join waitlist</option>
+                    <option value="decline">Decline</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-neutral-500">
+                  Review = score ≥ Review threshold but &lt; Accept (e.g. score 20 with Accept 30, Review 15). Use None if you only want Decline for rejected leads.
+                </p>
               </div>
-              <div>
-                <label htmlFor="threshold-reject" className="block text-xs font-medium text-neutral-600">Reject (score &lt;)</label>
-                <input
-                  id="threshold-reject"
-                  type="number"
-                  min={0}
-                  value={thresholds.reject}
-                  onChange={(e) => setThresholds((t) => ({ ...t, reject: parseInt(e.target.value, 10) || 0 }))}
-                  className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
-                />
+              <div className="rounded-lg border border-red-200 bg-red-50/80 px-3 py-2.5 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-red-800">Reject lead</span>
+                  <span className="text-xs text-neutral-600">when score &lt;</span>
+                  <input
+                    id="threshold-reject"
+                    type="number"
+                    min={0}
+                    value={thresholds.reject}
+                    onChange={(e) => setThresholds((t) => ({ ...t, reject: parseInt(e.target.value, 10) || 0 }))}
+                    className="w-16 rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm font-medium text-neutral-900 focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+                    aria-label="Reject lead when score below"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-neutral-600">Press platform button</span>
+                  <select
+                    value={triggerPlatformActions.reject ?? ""}
+                    onChange={(e) => setTriggerAction("reject", (e.target.value || null) as TriggerPlatformAction | null)}
+                    className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs font-medium text-neutral-900 focus:border-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+                    aria-label="Platform button when Reject trigger fires"
+                  >
+                    <option value="">None</option>
+                    <option value="accept">Accept</option>
+                    <option value="waitlist">Join waitlist</option>
+                    <option value="decline">Decline</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>

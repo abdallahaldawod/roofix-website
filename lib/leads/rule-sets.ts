@@ -27,6 +27,7 @@ function toLeadRuleSet(id: string, d: DocumentData): LeadRuleSet {
     scoringRules: d.scoringRules ?? [],
     locationFilters: d.locationFilters ?? [],
     thresholds: d.thresholds ?? { accept: 30, review: 15, reject: 0 },
+    triggerPlatformActions: d.triggerPlatformActions ?? undefined,
     safetyControls: d.safetyControls ?? { maxLeadsPerDay: 50, cooldownMinutes: 30 },
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,

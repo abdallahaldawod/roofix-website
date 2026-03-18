@@ -49,11 +49,6 @@ async function parseJsonResponse<T = unknown>(res: Response): Promise<T> {
 export type EditPageClientProps = { pageId: string };
 
 export function EditPageClient(props: EditPageClientProps) {
-  // #region agent log
-  if (typeof window !== "undefined") {
-    fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'EditPageClient:mount',message:'next16 params resolved only',data:{pageId:props.pageId,isString:typeof props.pageId==='string'},timestamp:Date.now(),hypothesisId:'next16'})}).catch(()=>{});
-  }
-  // #endregion
   const pageId = props.pageId;
   const router = useRouter();
   const base = useControlCentreBase();

@@ -161,12 +161,6 @@ function getPostedTimeMs(lead: LeadActivity): number {
 export type LeadsPageClientProps = { searchParams: Record<string, string | string[] | undefined> | null };
 
 export function LeadsPageClient(props: LeadsPageClientProps) {
-  // #region agent log
-  if (typeof window !== "undefined") {
-    const isResolved = props.searchParams === null || (typeof props.searchParams === "object" && typeof (props.searchParams as Promise<unknown>).then !== "function");
-    fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'LeadsPageClient:mount',message:'next16 searchParams resolved only',data:{isResolved},timestamp:Date.now(),hypothesisId:'next16'})}).catch(()=>{});
-  }
-  // #endregion
   const base = useControlCentreBase();
   const resolvedSearchParams = props.searchParams;
   const sourceFromUrl =
@@ -217,12 +211,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     setError(null);
     const unsubscribe = subscribeToActivity(
       (data) => {
-        // #region agent log
-        const hipages = data.filter((l) => (l.sourceName ?? "").toLowerCase().includes("hipages"));
-        if (hipages.length > 0) {
-          fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'leads-page:subscription',message:'Leads received',data:{total:data.length,hipagesCount:hipages.length,sample:hipages.slice(0,10).map((l)=>({id:l.id,sourceName:l.sourceName,platformAccepted:!!l.platformAccepted,hasCustomer:!!(l.customerName||l.email||l.phone),customerName:(l.customerName??'').slice(0,30)})),timestamp:Date.now(),hypothesisId:'H1'}})}).catch(()=>{});
-        }
-        // #endregion
         setLeads(data);
         setLastLeadsUpdateAt(Date.now());
         setLoading(false);

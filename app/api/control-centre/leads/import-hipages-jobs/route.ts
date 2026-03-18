@@ -308,9 +308,6 @@ export async function POST(request: Request) {
         if (titleMatchJobId) platformUpdates.jobId = titleMatchJobId;
         if (Object.keys(platformUpdates).length > 0) await updateActivityAdmin(match.id, platformUpdates);
         updated++;
-        // #region agent log
-        fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'import-hipages-jobs:updated-title-match',message:'Import updated lead (title match)',data:{activityId:match.id},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         continue;
       }
 
@@ -339,9 +336,6 @@ export async function POST(request: Request) {
           if (jobIdFromHref) platformUpdates.jobId = jobIdFromHref;
           if (Object.keys(platformUpdates).length > 0) await updateActivityAdmin(match.id, platformUpdates);
           updated++;
-          // #region agent log
-          fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'import-hipages-jobs:updated-job-match',message:'Import updated lead (job id match)',data:{activityId:match.id},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
           continue;
         }
       }
@@ -374,9 +368,6 @@ export async function POST(request: Request) {
           if (jid) platformUpdates.jobId = jid;
           if (Object.keys(platformUpdates).length > 0) await updateActivityAdmin(match.id, platformUpdates);
           updated++;
-          // #region agent log
-          fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'import-hipages-jobs:updated-customer-match',message:'Import updated lead (customer name match)',data:{activityId:match.id},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
           continue;
         }
       }
@@ -407,12 +398,7 @@ export async function POST(request: Request) {
         ...(createJobId ? { jobId: createJobId } : {}),
       };
       const id = await writeActivityRecordAdmin(create);
-      if (id) {
-        imported++;
-        // #region agent log
-        fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5b29c1'},body:JSON.stringify({sessionId:'5b29c1',location:'import-hipages-jobs:created',message:'Import created lead',data:{activityId:id,customerName:(create.customerName??'').slice(0,40),sourceName:source.name},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-      }
+      if (id) imported++;
     }
 
     await browser.close();
