@@ -565,7 +565,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
             </p>
           </div>
           <Link
-            href={base + "/leads/management"}
+            href={(base || "/control-centre") + "/leads/management"}
             className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
           >
             <Settings className="h-4 w-4" />
@@ -734,7 +734,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                 Leads will appear here when you run a test scan or connect live sources. Configure sources and rule sets in Lead Management.
               </p>
               <Link
-                href={base + "/leads/management"}
+                href={(base || "/control-centre") + "/leads/management"}
                 className="mt-4 inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
               >
                 Open Lead Management

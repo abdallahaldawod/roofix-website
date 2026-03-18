@@ -6,8 +6,9 @@ import {
   getActivitiesBySourceIdAdmin,
   updateActivityRuleResultAdmin,
 } from "@/lib/leads/activity-admin";
+import { performHipagesAction } from "@/lib/leads/hipages-action";
 import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
-import type { LeadRuleSet } from "@/lib/leads/types";
+import type { LeadRuleSet, TriggerPlatformAction } from "@/lib/leads/types";
 
 /**
  * POST: Re-apply the current rule set to existing leads.
@@ -86,6 +87,31 @@ export async function POST(request: Request) {
           ruleSetId: ruleSet.id,
         });
         updated++;
+
+        // When rule set has a trigger platform action for this decision, press the button on the platform (e.g. hipages).
+        const decisionKey = result.decision.toLowerCase() as "accept" | "review" | "reject";
+        const triggerAction = ruleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
+        const hipagesActions = data.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
+        const actionPath = triggerAction && hipagesActions?.[triggerAction];
+        if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
+          try {
+            const actionResult = await performHipagesAction({
+              sourceId: source.id,
+              actionPath: actionPath.trim(),
+              action: triggerAction,
+              leadId: activityId,
+            });
+            if (!actionResult.ok) {
+              errors.push(
+                `Activity ${activityId} (${triggerAction}): ${actionResult.error}${actionResult.step ? ` [${actionResult.step}]` : ""}`
+              );
+            }
+          } catch (actionErr) {
+            errors.push(
+              `Activity ${activityId} (${triggerAction}): ${actionErr instanceof Error ? actionErr.message : String(actionErr)}`
+            );
+          }
+        }
       } catch (e) {
         errors.push(
           `Activity ${activityId}: ${e instanceof Error ? e.message : String(e)}`

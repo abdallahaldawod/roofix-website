@@ -76,7 +76,7 @@ export default function LeadManagementPage() {
     <div className="min-w-0">
       <div className="mb-4">
         <Link
-          href={base + "/leads"}
+          href={(base || "/control-centre") + "/leads"}
           className="inline-flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -106,7 +106,7 @@ export default function LeadManagementPage() {
             addModalOpen={addModalOpen}
             onAddModalClose={() => setAddModalOpen(false)}
             onAddModalOpen={() => setAddModalOpen(true)}
-            basePath={base}
+            basePath={base || "/control-centre"}
           />
         </div>
       )}

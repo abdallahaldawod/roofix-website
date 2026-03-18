@@ -26,8 +26,9 @@ import {
   listScannedLeadsBySourceId,
   deleteScannedLeadRaw,
 } from "@/lib/leads/scanned-leads-admin";
-import { getActivityByIdAdmin, updateActivityAdmin, deleteActivityById } from "@/lib/leads/activity-admin";
+import { getActivityByIdAdmin, updateActivityAdmin, updateActivityRuleResultAdmin, deleteActivityById } from "@/lib/leads/activity-admin";
 import { getRuleSetsAdmin } from "@/lib/leads/rule-sets-admin";
+import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
 import { incrementScanCountersAdmin } from "@/lib/leads/sources-admin";
 import { writeScanRunAdmin } from "@/lib/leads/scan-runs-admin";
 import { performHipagesAction } from "@/lib/leads/hipages-action";
@@ -353,11 +354,81 @@ export async function runBackgroundScan(
               : false;
 
             if (existing?.activityId && isProcessed) {
-              const activity = await getActivityByIdAdmin(existing.activityId);
+              const activityId = existing.activityId;
+              const activity = await getActivityByIdAdmin(activityId);
               if (activity) {
                 const payload = buildPlatformUpdateFromScannedLead(normalized);
                 if (!platformDataEquals(payload, activity)) {
-                  await updateActivityAdmin(existing.activityId!, payload).catch(() => {});
+                  await updateActivityAdmin(activityId, payload).catch(() => {});
+                }
+              }
+              // Re-apply rules on rescan: re-evaluate with current rule set and update score/decision, then trigger platform action if set.
+              if (effectiveRuleSet) {
+                const input: EvaluationInput = {
+                  title: normalized.title,
+                  description: normalized.description,
+                  suburb: normalized.suburb,
+                  postcode: normalized.postcode,
+                };
+                const ruleResult = evaluateLead(input, effectiveRuleSet);
+                try {
+                  await updateActivityRuleResultAdmin(activityId, {
+                    matchedKeywords: ruleResult.matchedKeywords,
+                    excludedMatched: ruleResult.excludedMatched,
+                    score: ruleResult.score,
+                    scoreBreakdown: ruleResult.scoreBreakdown,
+                    decision: ruleResult.decision,
+                    reasons: ruleResult.reasons,
+                    timeline: ruleResult.timeline,
+                    status: ruleResult.status,
+                    ruleSetId: effectiveRuleSet.id,
+                  });
+                  const decisionKey = ruleResult.decision.toLowerCase() as "accept" | "review" | "reject";
+                  const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
+                  const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
+                  const actionPath = triggerAction && hipagesActions?.[triggerAction];
+                  if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
+                    try {
+                      const actionResult = await performHipagesAction({
+                        sourceId: source.id,
+                        actionPath: actionPath.trim(),
+                        action: triggerAction,
+                        leadId: activityId,
+                      });
+                      if (actionResult.ok) {
+                        logScan("trigger_platform_action_ok", {
+                          sourceId,
+                          activityId,
+                          decision: ruleResult.decision,
+                          action: triggerAction,
+                          rescan: true,
+                        });
+                      } else {
+                        logScan("trigger_platform_action_failed", {
+                          sourceId,
+                          activityId,
+                          decision: ruleResult.decision,
+                          action: triggerAction,
+                          error: actionResult.error,
+                          step: actionResult.step,
+                          rescan: true,
+                        });
+                      }
+                    } catch (actionErr) {
+                      logScan("trigger_platform_action_error", {
+                        sourceId,
+                        activityId,
+                        error: actionErr instanceof Error ? actionErr.message : String(actionErr),
+                        rescan: true,
+                      });
+                    }
+                  }
+                } catch (ruleErr) {
+                  logScan("rescan_reapply_rules_failed", {
+                    sourceId,
+                    activityId,
+                    error: ruleErr instanceof Error ? ruleErr.message : String(ruleErr),
+                  });
                 }
               }
               duplicate++;
@@ -420,7 +491,14 @@ export async function runBackgroundScan(
                     action: triggerAction,
                     leadId: processResult.activityId,
                   });
-                  if (!actionResult.ok) {
+                  if (actionResult.ok) {
+                    logScan("trigger_platform_action_ok", {
+                      sourceId,
+                      activityId: processResult.activityId,
+                      decision: processResult.decision,
+                      action: triggerAction,
+                    });
+                  } else {
                     logScan("trigger_platform_action_failed", {
                       sourceId,
                       activityId: processResult.activityId,

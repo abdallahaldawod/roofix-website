@@ -42,8 +42,10 @@ export default function DashboardLayout({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Use /control-centre so links always hit the real route in production (app/control-centre/...)
+  const linkBase = base || "/control-centre";
   function href(path: string) {
-    return path === "/" ? (base || "/") : (base + path);
+    return path === "/" ? (linkBase === "/control-centre" ? "/control-centre" : "/") : (linkBase + path);
   }
 
   const handleSignOut = useCallback(async () => {
@@ -92,7 +94,7 @@ export default function DashboardLayout({
       <nav className="flex-1 overflow-auto p-2">
         {nav.map((item) => {
           const itemHref = href(item.path);
-          const active = item.path === "/" ? isDashboard : (pathname === base + item.path || pathname === item.path);
+          const active = item.path === "/" ? isDashboard : (pathname === linkBase + item.path || pathname === "/control-centre" + item.path || pathname === item.path);
           return (
             <Link
               key={item.path}
