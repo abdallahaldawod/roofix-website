@@ -191,7 +191,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [lastAcceptedSyncAt, setLastAcceptedSyncAt] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
   const [lastLeadsUpdateAt, setLastLeadsUpdateAt] = useState<number | null>(null);
-  const [reapplyRulesInProgress, setReapplyRulesInProgress] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [acceptedSyncInProgress, setAcceptedSyncInProgress] = useState(false);
   const acceptedSyncInProgressRef = useRef(false);
@@ -373,34 +372,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       setBulkDeleting(false);
     }
   }, [checkedIds, getToken]);
-
-  const handleReapplyRules = useCallback(async () => {
-    setReapplyRulesInProgress(true);
-    try {
-      const token = await getToken();
-      const res = await fetch("/api/control-centre/leads/reapply-rules", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error ?? "Failed to re-apply rules");
-        return;
-      }
-      setLastLeadsUpdateAt(Date.now());
-      if (data.updated !== undefined) {
-        alert(`Rules re-applied to ${data.updated} lead(s).${data.errors?.length ? ` ${data.errors.length} error(s).` : ""}`);
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to re-apply rules");
-    } finally {
-      setReapplyRulesInProgress(false);
-    }
-  }, [getToken]);
 
   const handleFetchCustomer = useCallback(
     async (leadId: string, sourceId: string): Promise<{ ok: boolean; error?: string; _debug?: Record<string, unknown> }> => {
@@ -679,17 +650,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
-          <button
-            type="button"
-            onClick={handleReapplyRules}
-            disabled={reapplyRulesInProgress}
-            className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-          >
-            {reapplyRulesInProgress ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : null}
-            Re-apply rules
-          </button>
           {leadsTableView === "accepted" && (
             <button
               type="button"
