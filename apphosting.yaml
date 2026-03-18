@@ -6,7 +6,11 @@
 runConfig:
   minInstances: 0
 
+# Playwright: install Chromium during build (see package.json build script) and use same path at runtime.
 env:
+  - variable: PLAYWRIGHT_BROWSERS_PATH
+    value: ".playwright-browsers"
+    availability: [BUILD, RUNTIME]
   # --- Contact form (Resend, default sender only — no custom domain) ---
   - variable: RESEND_API_KEY
     secret: RESEND_API_KEY
