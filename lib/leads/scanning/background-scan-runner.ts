@@ -437,6 +437,47 @@ export async function runBackgroundScan(
 
             // Re-fetch: isLeadAlreadyProcessed may have deleted the scanned_lead when the activity was missing.
             const existingForImport = await getScannedLeadByDedupeKey(source.id, dedupeKey);
+            // If re-fetch returned a doc that already has an activityId, treat as duplicate (avoid creating a second activity for same lead).
+            if (existingForImport?.activityId != null && existingForImport.activityId !== "") {
+              const activityId = existingForImport.activityId;
+              const activity = await getActivityByIdAdmin(activityId);
+              if (activity) {
+                const payload = buildPlatformUpdateFromScannedLead(normalized);
+                if (!platformDataEquals(payload, activity)) {
+                  await updateActivityAdmin(activityId, payload).catch(() => {});
+                }
+              }
+              if (effectiveRuleSet) {
+                const input: EvaluationInput = {
+                  title: normalized.title,
+                  description: normalized.description,
+                  suburb: normalized.suburb,
+                  postcode: normalized.postcode,
+                };
+                const ruleResult = evaluateLead(input, effectiveRuleSet);
+                try {
+                  await updateActivityRuleResultAdmin(activityId, {
+                    matchedKeywords: ruleResult.matchedKeywords,
+                    excludedMatched: ruleResult.excludedMatched,
+                    score: ruleResult.score,
+                    scoreBreakdown: ruleResult.scoreBreakdown,
+                    decision: ruleResult.decision,
+                    reasons: ruleResult.reasons,
+                    timeline: ruleResult.timeline,
+                    status: ruleResult.status,
+                    ruleSetId: effectiveRuleSet.id,
+                  });
+                } catch (ruleErr) {
+                  logScan("rescan_reapply_rules_failed", {
+                    sourceId,
+                    activityId,
+                    error: ruleErr instanceof Error ? ruleErr.message : String(ruleErr),
+                  });
+                }
+              }
+              duplicate++;
+              continue;
+            }
             // Reuse existing scanned_lead doc when present (avoids duplicate rows when activityId was never set).
             let rawId: string | null;
             if (existingForImport) {
