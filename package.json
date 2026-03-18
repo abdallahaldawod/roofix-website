@@ -10,10 +10,13 @@
     "start": "next start",
     "lint": "eslint",
     "deploy:storage": "npx firebase-tools deploy --only storage",
-    "deploy:rules": "npx firebase-tools deploy --only firestore,storage"
+    "deploy:rules": "npx firebase-tools deploy --only firestore,storage",
+    "lead-scan": "tsx scripts/run-lead-scan.ts",
+    "bootstrap-hipages-auth": "tsx scripts/bootstrap-hipages-auth.ts"
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.1",
+    "playwright": "^1.49.0",
     "@iconify/react": "^6.0.2",
     "dotenv": "^17.2.3",
     "firebase": "^12.8.0",
@@ -35,6 +38,7 @@
     "png-to-ico": "^2.1.1",
     "sharp": "^0.33.5",
     "tailwindcss": "^4",
+    "tsx": "^4.19.0",
     "typescript": "^5"
   }
 }

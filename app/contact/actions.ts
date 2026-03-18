@@ -4,6 +4,9 @@ import { headers } from "next/headers";
 import { recordConversion } from "@/lib/conversions";
 import { checkRateLimit, getClientIpFromHeaders } from "@/lib/rateLimit";
 import { getResendConfig, sendContactEmail } from "@/lib/resend";
+import { writeIncomingLead } from "@/lib/leads/incoming";
+import { processWebsiteLead } from "@/lib/leads/process-website-lead";
+import type { IncomingLeadCreate } from "@/lib/leads/types";
 
 type ActionResult = {
   success: boolean;
@@ -94,25 +97,64 @@ export async function submitContactForm(
     };
   }
 
-  const config = getResendConfig();
-  if (!config.ok) {
-    return { success: false, error: config.error };
-  }
-
   const ip = getClientIpFromHeaders(await headers());
   const { allowed } = checkRateLimit(`contact:${ip}`, { windowMs: 60_000, max: 5 });
   if (!allowed) {
     return { success: false, error: "Too many submissions. Please try again in a minute." };
   }
 
-  const payload = {
-    name: String(name).trim(),
+  const nameStr = String(name).trim();
+  const emailStr = String(email).trim();
+  const suburbStr = String(suburb).trim();
+  const serviceStr = String(service).trim();
+  const projectTypeStr = String(projectType).trim();
+  const messageStr = String(message).trim();
+  const serviceType = `${serviceStr} – ${projectTypeStr}`.trim();
+  const title = serviceType;
+
+  // Optional: extract Australian postcode (4 digits) from suburb string if present
+  const postcodeMatch = suburbStr.match(/\b(\d{4})\b/);
+  const postcode = postcodeMatch ? postcodeMatch[1] : undefined;
+
+  const incomingPayload: IncomingLeadCreate = {
+    customerName: nameStr,
     phone: phoneStr,
-    email: String(email).trim(),
-    suburb: String(suburb).trim(),
-    service: String(service).trim(),
-    projectType: String(projectType).trim(),
-    message: String(message).trim(),
+    email: emailStr,
+    suburb: suburbStr,
+    postcode,
+    serviceType,
+    title,
+    description: messageStr,
+    source: "roofix-website",
+  };
+
+  const incomingId = await writeIncomingLead(incomingPayload);
+  if (incomingId) {
+    try {
+      const pipelineResult = await processWebsiteLead(incomingId, incomingPayload);
+      if (!pipelineResult.ok) {
+        console.warn("[Contact] Lead pipeline skipped:", pipelineResult.skipped);
+      }
+    } catch (e) {
+      console.error("[Contact] Lead pipeline error:", e instanceof Error ? e.message : e);
+    }
+  } else {
+    console.warn("[Contact] Incoming lead not saved: Firebase Admin is likely not configured.");
+  }
+
+  const config = getResendConfig();
+  if (!config.ok) {
+    return { success: false, error: config.error };
+  }
+
+  const payload = {
+    name: nameStr,
+    phone: phoneStr,
+    email: emailStr,
+    suburb: suburbStr,
+    service: serviceStr,
+    projectType: projectTypeStr,
+    message: messageStr,
     submittedAt: new Date().toISOString(),
   };
 

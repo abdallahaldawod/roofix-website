@@ -30,6 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# local scan auth and debug (do not commit)
+.auth/
+.screenshots/
+
+# Cursor IDE / debug session files
+.cursor/
+
 # env files – never commit real keys; .env.local must not be committed
 .env*
 !.env.local.example

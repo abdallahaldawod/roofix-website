@@ -16,6 +16,7 @@ export async function requireControlCentreAuth(
     ? authHeader.slice(7)
     : null;
   if (!token) {
+    console.warn("[control-centre auth] Unauthorized: Missing Authorization header");
     return { ok: false, status: 401, message: "Missing Authorization header" };
   }
 
@@ -26,19 +27,23 @@ export async function requireControlCentreAuth(
 
     const db = getAdminFirestore();
     if (!db) {
+      console.warn("[control-centre auth] Service unavailable: Firestore not configured");
       return { ok: false, status: 503, message: "Service unavailable" };
     }
     const userSnap = await db.collection("users").doc(uid).get();
     const role = (userSnap.data() as { role?: string } | undefined)?.role;
     if (role !== "admin") {
+      console.warn("[control-centre auth] Forbidden: user role is not admin", { uid });
       return { ok: false, status: 403, message: "Admin access required" };
     }
     return { ok: true, uid };
   } catch (e) {
+    const message = e instanceof Error ? e.message : "Invalid token";
+    console.warn("[control-centre auth] Unauthorized:", message);
     return {
       ok: false,
       status: 401,
-      message: e instanceof Error ? e.message : "Invalid token",
+      message: "Invalid token",
     };
   }
 }

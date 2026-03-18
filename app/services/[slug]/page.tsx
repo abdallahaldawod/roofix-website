@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound, unstable_rethrow } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import CTAButton from "@/components/CTAButton";
 import ServiceCard from "@/components/ServiceCard";
@@ -9,7 +9,6 @@ const BASE_URL = "https://roofix.com.au";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export const revalidate = 300;
@@ -25,9 +24,9 @@ export async function generateStaticParams() {
   }
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
   try {
-    const { slug } = await params;
+    const { slug } = await props.params;
     const service = await getServiceBySlug(slug);
     if (!service) return { title: "Roofix - Roofing & Gutters" };
     const title = typeof service.title === "string" ? service.title : "Service";
@@ -59,7 +58,7 @@ function normalizeContent(raw: unknown): string[] {
   return [];
 }
 
-/** Resolved props only — avoids dev tools enumerating Promise params/searchParams. */
+/** Resolved params only — avoids dev tools enumerating Promise route props. */
 async function ServicePageContent({ slug }: { slug: string }) {
   const service = await getServiceBySlug(slug);
   if (!service) notFound();
@@ -133,14 +132,8 @@ async function ServicePageContent({ slug }: { slug: string }) {
   );
 }
 
-/* @next-codemod-ignore - params awaited immediately; enumeration may come from dev tooling (e.g. component inspector). */
+/* @next-codemod-ignore params awaited immediately; enumeration may come from dev tooling. */
 export default async function ServicePage(props: Props) {
   const { slug } = await props.params;
-  try {
-    return <ServicePageContent slug={slug} />;
-  } catch (e) {
-    unstable_rethrow(e);
-    if (process.env.NODE_ENV === "development") console.error("[ServicePage]", e);
-    notFound();
-  }
+  return <ServicePageContent slug={slug} />;
 }

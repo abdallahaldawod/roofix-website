@@ -32,5 +32,26 @@ service cloud.firestore {
     match /conversions/{docId} {
       allow read, write: if false;
     }
+    match /lead_sources/{docId} {
+      allow read, write: if isAdmin();
+    }
+    match /lead_rule_sets/{docId} {
+      allow read, write: if isAdmin();
+    }
+    match /incoming_leads/{docId} {
+      allow read, write: if false;
+    }
+    match /scanned_leads/{docId} {
+      allow read, write: if false;
+    }
+    match /scan_runs/{docId} {
+      allow read, write: if false;
+    }
+    match /lead_activity/{docId} {
+      allow read, write: if isAdmin();
+    }
+    match /lead_settings/{docId} {
+      allow read, write: if isAdmin();
+    }
   }
 }

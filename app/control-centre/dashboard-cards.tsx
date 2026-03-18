@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, FolderOpen, Wrench, MessageSquare, BarChart3 } from "lucide-react";
+import { FileText, FolderOpen, Wrench, MessageSquare, BarChart3, Users, Settings } from "lucide-react";
 import { useControlCentreBase } from "./use-base-path";
 
 const CONTENT_CARDS = [
@@ -29,6 +29,18 @@ const CONTENT_CARDS = [
     icon: MessageSquare,
     description: "Manage customer testimonials and import Google reviews.",
   },
+  {
+    path: "/leads",
+    label: "Leads",
+    icon: Users,
+    description: "View and manage your lead inbox.",
+  },
+  {
+    path: "/leads/management",
+    label: "Lead Management",
+    icon: Settings,
+    description: "Configure sources, rule sets, activity and settings.",
+  },
 ] as const;
 
 const INSIGHTS_CARDS = [
@@ -44,12 +56,12 @@ export function DashboardCards() {
   const base = useControlCentreBase();
 
   return (
-    <div className="mt-8 space-y-10">
+    <div className="mt-4 space-y-8">
       {/* Content section */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
           Content
-        </h2>
+        </h3>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {CONTENT_CARDS.map((card) => {
             const href = base ? base + card.path : card.path;
@@ -72,9 +84,9 @@ export function DashboardCards() {
 
       {/* Insights section */}
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">
           Insights
-        </h2>
+        </h3>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {INSIGHTS_CARDS.map((card) => {
             const href = base ? base + card.path : card.path;

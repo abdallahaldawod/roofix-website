@@ -16,6 +16,7 @@ import {
   LogOut,
   Menu,
   X,
+  Users,
 } from "lucide-react";
 
 const nav = [
@@ -25,6 +26,7 @@ const nav = [
   { path: "/projects", label: "Projects", icon: FolderOpen },
   { path: "/services", label: "Services", icon: Wrench },
   { path: "/testimonials", label: "Testimonials", icon: MessageSquare },
+  { path: "/leads", label: "Leads", icon: Users },
 ];
 
 const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
@@ -90,7 +92,7 @@ export default function DashboardLayout({
       <nav className="flex-1 overflow-auto p-2">
         {nav.map((item) => {
           const itemHref = href(item.path);
-          const active = item.path === "/" ? isDashboard : (pathname === "/control-centre" + item.path || pathname === item.path);
+          const active = item.path === "/" ? isDashboard : (pathname === base + item.path || pathname === item.path);
           return (
             <Link
               key={item.path}

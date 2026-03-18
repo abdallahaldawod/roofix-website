@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, unstable_rethrow } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getProjectById, getProjects } from "@/lib/data";
 import ProjectGallery from "@/components/ProjectGallery";
 import { AppIcon } from "@/components/ui/AppIcon";
@@ -26,7 +26,6 @@ const TRUST_BADGES = [
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export const revalidate = 300;
@@ -44,9 +43,9 @@ export async function generateStaticParams() {
   }
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
   try {
-    const { id } = await params;
+    const { id } = await props.params;
     const project = await getProjectById(id);
     if (!project) return { title: "Project | Roofix - Roofing & Gutters" };
     const url = `${BASE_URL}/projects/${id}`;
@@ -98,7 +97,7 @@ function SummaryItem({
   );
 }
 
-/** Resolved props only — avoids dev tools enumerating Promise params/searchParams. */
+/** Resolved params only — avoids dev tools enumerating Promise route props. */
 async function ProjectDetailContent({ id }: { id: string }) {
   let project: Awaited<ReturnType<typeof getProjectById>> = null;
   try {
@@ -420,14 +419,8 @@ async function ProjectDetailContent({ id }: { id: string }) {
     );
 }
 
-/* @next-codemod-ignore - params awaited immediately; enumeration may come from dev tooling (e.g. component inspector). */
+/* @next-codemod-ignore params awaited immediately; enumeration may come from dev tooling. */
 export default async function ProjectDetailPage(props: Props) {
   const { id } = await props.params;
-  try {
-    return <ProjectDetailContent id={id} />;
-  } catch (e) {
-    unstable_rethrow(e);
-    if (process.env.NODE_ENV === "development") console.error("[ProjectDetailPage]", e);
-    notFound();
-  }
+  return <ProjectDetailContent id={id} />;
 }

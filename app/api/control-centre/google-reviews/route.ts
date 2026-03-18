@@ -5,7 +5,14 @@
  */
 
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
+import path from "node:path";
+import dotenv from "dotenv";
 import { NextResponse } from "next/server";
+
+// So serverless/API route sees .env.local in dev (file must be in project root).
+if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
+  dotenv.config({ path: path.join(process.cwd(), ".env.local"), override: true });
+}
 
 type GbpReview = {
   name?: string;
@@ -65,14 +72,25 @@ export async function GET(request: Request) {
     );
   }
 
-  const accountId = process.env.GOOGLE_GBP_ACCOUNT_ID?.trim();
-  const locationId = process.env.GOOGLE_GBP_LOCATION_ID?.trim();
+  const gbpVars = {
+    GOOGLE_GBP_ACCOUNT_ID: process.env.GOOGLE_GBP_ACCOUNT_ID?.trim(),
+    GOOGLE_GBP_LOCATION_ID: process.env.GOOGLE_GBP_LOCATION_ID?.trim(),
+    GOOGLE_GBP_CLIENT_ID: process.env.GOOGLE_GBP_CLIENT_ID?.trim(),
+    GOOGLE_GBP_CLIENT_SECRET: process.env.GOOGLE_GBP_CLIENT_SECRET?.trim(),
+    GOOGLE_GBP_REFRESH_TOKEN: process.env.GOOGLE_GBP_REFRESH_TOKEN?.trim(),
+  };
+  const missing = (Object.entries(gbpVars) as [keyof typeof gbpVars, string][]).filter(([, v]) => !v).map(([k]) => k);
+
+  const accountId = gbpVars.GOOGLE_GBP_ACCOUNT_ID;
+  const locationId = gbpVars.GOOGLE_GBP_LOCATION_ID;
   if (!accountId || !locationId) {
     return NextResponse.json(
       {
         ok: false,
         error:
           "Google Business Profile is not configured. Set GOOGLE_GBP_ACCOUNT_ID, GOOGLE_GBP_LOCATION_ID, and OAuth credentials (see .env.local.example).",
+        missing,
+        hint: missing.length > 0 ? `Add ${missing.join(", ")} to .env.local in the project root (same folder as package.json), then restart the dev server.` : undefined,
       },
       { status: 503 }
     );
@@ -80,11 +98,16 @@ export async function GET(request: Request) {
 
   const accessToken = await getAccessToken();
   if (!accessToken) {
+    const oauthMissing = ["GOOGLE_GBP_CLIENT_ID", "GOOGLE_GBP_CLIENT_SECRET", "GOOGLE_GBP_REFRESH_TOKEN"].filter(
+      (k) => !gbpVars[k as keyof typeof gbpVars]
+    );
     return NextResponse.json(
       {
         ok: false,
         error:
           "Could not get Google access token. Check GOOGLE_GBP_CLIENT_ID, GOOGLE_GBP_CLIENT_SECRET, and GOOGLE_GBP_REFRESH_TOKEN.",
+        missing: oauthMissing.length > 0 ? oauthMissing : ["GOOGLE_GBP_REFRESH_TOKEN (or OAuth credentials may be invalid)"],
+        hint: "Add OAuth credentials to .env.local and complete the one-time OAuth flow to get a refresh token. Restart the dev server after changing .env.local.",
       },
       { status: 503 }
     );
