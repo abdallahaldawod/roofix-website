@@ -178,6 +178,8 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [hipagesActingId, setHipagesActingId] = useState<string | null>(null);
   const [hipagesActionResult, setHipagesActionResult] = useState<Record<string, "ok" | "error">>({});
+  /** When action fails, store the API error message (and optional step) for display. */
+  const [hipagesActionError, setHipagesActionError] = useState<Record<string, string>>({});
   const [fetchCustomerLeadId, setFetchCustomerLeadId] = useState<string | null>(null);
 
   const [filterSource, setFilterSource] = useState("");
@@ -338,6 +340,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     async (lead: LeadActivity, action: "accept" | "decline" | "waitlist", actionPath: string) => {
       if (hipagesActingId) return;
       setHipagesActingId(`${lead.id}-${action}`);
+      setHipagesActionError((prev) => ({ ...prev, [lead.id]: "" }));
       try {
         const token = await getToken();
         const res = await fetch("/api/control-centre/leads/hipages-action", {
@@ -349,9 +352,17 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           body: JSON.stringify({ sourceId: lead.sourceId, actionPath, action, leadId: lead.id }),
         });
         const data = await res.json();
-        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: data.ok ? "ok" : "error" }));
-      } catch {
+        const ok = data.ok === true;
+        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: ok ? "ok" : "error" }));
+        if (!ok) {
+          const errMsg = typeof data.error === "string" ? data.error : "Action failed";
+          const step = typeof data.step === "string" ? data.step : "";
+          setHipagesActionError((prev) => ({ ...prev, [lead.id]: step ? `${errMsg} (${step})` : errMsg }));
+        }
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : "Request failed";
         setHipagesActionResult((prev) => ({ ...prev, [lead.id]: "error" }));
+        setHipagesActionError((prev) => ({ ...prev, [lead.id]: errMsg }));
       } finally {
         setHipagesActingId(null);
       }
@@ -914,7 +925,12 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                         hipagesActionResult[lead.id] === "ok" ? (
                           <span className="text-xs font-medium text-emerald-600">✓ Done</span>
                         ) : hipagesActionResult[lead.id] === "error" ? (
-                          <span className="text-xs font-medium text-red-500">Failed</span>
+                          <span
+                            className="max-w-[200px] truncate block text-xs font-medium text-red-500"
+                            title={hipagesActionError[lead.id] || "Failed"}
+                          >
+                            {hipagesActionError[lead.id] || "Failed"}
+                          </span>
                         ) : (
                           <div className="flex flex-wrap items-center gap-1">
                             {lead.hipagesActions.accept && (
