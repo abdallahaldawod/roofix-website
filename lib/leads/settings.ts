@@ -3,6 +3,8 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
+  onSnapshot,
+  type DocumentData,
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase/client";
 import type { LeadSettings, LeadSettingsUpdate } from "./types";
@@ -28,11 +30,8 @@ export const DEFAULT_SETTINGS: LeadSettings = {
   notifyEmail: "",
 };
 
-export async function getSettings(): Promise<LeadSettings | null> {
-  const db = getFirestoreDb();
-  const snap = await getDoc(doc(db, SETTINGS_DOC_PATH));
-  if (!snap.exists()) return null;
-  const d = snap.data();
+/** Map Firestore document data to LeadSettings (same defaults as getSettings). */
+function docDataToLeadSettings(d: DocumentData): LeadSettings {
   return {
     automationEnabled: d.automationEnabled ?? DEFAULT_SETTINGS.automationEnabled,
     defaultMode: d.defaultMode ?? DEFAULT_SETTINGS.defaultMode,
@@ -51,6 +50,38 @@ export async function getSettings(): Promise<LeadSettings | null> {
     notifyErrors: d.notifyErrors ?? DEFAULT_SETTINGS.notifyErrors,
     notifyEmail: d.notifyEmail ?? DEFAULT_SETTINGS.notifyEmail,
   };
+}
+
+export async function getSettings(): Promise<LeadSettings | null> {
+  const db = getFirestoreDb();
+  const snap = await getDoc(doc(db, SETTINGS_DOC_PATH));
+  if (!snap.exists()) return null;
+  return docDataToLeadSettings(snap.data());
+}
+
+/**
+ * Real-time listener for `lead_settings/global`. Keeps UI in sync across tabs/pages.
+ * When the doc is missing, emits DEFAULT_SETTINGS.
+ */
+export function subscribeToSettings(
+  onData: (settings: LeadSettings) => void,
+  onError?: (error: Error) => void
+): () => void {
+  const db = getFirestoreDb();
+  return onSnapshot(
+    doc(db, SETTINGS_DOC_PATH),
+    (snap) => {
+      if (!snap.exists()) {
+        onData(DEFAULT_SETTINGS);
+        return;
+      }
+      onData(docDataToLeadSettings(snap.data()));
+    },
+    (err) => {
+      onError?.(err);
+      onData(DEFAULT_SETTINGS);
+    }
+  );
 }
 
 export async function saveSettings(data: LeadSettingsUpdate): Promise<void> {

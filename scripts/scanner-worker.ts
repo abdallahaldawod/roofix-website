@@ -1,13 +1,15 @@
 /**
- * Local always-on scanner worker.
+ * Local always-on leads scanner worker.
  * Loads scannable external sources from Firestore, runs the existing background scan
  * for each in a loop with configurable delays. Thin orchestrator only; no scan logic here.
+ *
+ * Hipages jobs list sync runs in a separate process: npm run scanner-jobs-worker
  *
  * Usage: npm run scanner-worker
  *        npx tsx scripts/scanner-worker.ts
  *
  * Requires .env.local (or env) with Firebase Admin credentials so getSourcesAdmin works.
- * Session files must exist under .auth/sources/<sourceId>/ for scannable sources.
+ * Session: leads file `.auth/sources/<sourceId>/storage-state.leads.json` (or legacy path from Firestore); see session-persistence.ts.
  */
 
 import path from "path";
@@ -19,6 +21,7 @@ dotenv.config();
 
 import { getSourcesAdmin } from "../lib/leads/sources-admin";
 import { runBackgroundScan } from "../lib/leads/scanning/background-scan-runner";
+import { runActionQueueCycle } from "../lib/leads/scanning/action-queue-worker";
 import type { LeadSource } from "../lib/leads/types";
 
 let scanCount = 0;
@@ -48,7 +51,21 @@ function getScannableSources(sources: LeadSource[]): LeadSource[] {
   );
 }
 
+async function runActionQueueStep(): Promise<void> {
+  try {
+    for (;;) {
+      const processed = await runActionQueueCycle();
+      if (!processed) break;
+    }
+  } catch (e) {
+    const errMsg = (e instanceof Error ? e.message : String(e)).replace(/\|/g, ";");
+    console.log(`${PREFIX} action_queue_error | error=${errMsg}`);
+  }
+}
+
 async function runCycle(cycleNumber: number): Promise<void> {
+  await runActionQueueStep();
+
   const sources = await getSourcesAdmin();
   const scannable = getScannableSources(sources);
 
@@ -67,9 +84,10 @@ async function runCycle(cycleNumber: number): Promise<void> {
   }
 
   for (const source of scannable) {
+    // Always prioritize queued actions before starting the next scan.
+    await runActionQueueStep();
     const sourceName = source.name || source.id;
     const startMs = Date.now();
-    console.log(`${PREFIX} scan #${cycleNumber} started | source=${sourceName}`);
 
     try {
       const result = await runBackgroundScan(source.id);
@@ -108,8 +126,6 @@ async function main(): Promise<void> {
     const cycleStartTime = Date.now();
 
     try {
-      console.log(`${PREFIX} ${new Date().toISOString()} scan_cycle_started { scanCount: ${scanCount} }`);
-      console.log(`${PREFIX} Scanning ⟳`);
       await runCycle(scanCount);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -121,13 +137,10 @@ async function main(): Promise<void> {
 
     const cycleEndTime = Date.now();
     const durationMs = cycleEndTime - cycleStartTime;
-    console.log(`${PREFIX} ${new Date().toISOString()} scan_cycle_completed { scanCount: ${scanCount} }`);
 
     if (durationMs >= MIN_SCAN_INTERVAL_MS) {
-      console.log(`${PREFIX} ${new Date().toISOString()} next_cycle_immediate { reason: "cycle took ${durationMs}ms >= ${MIN_SCAN_INTERVAL_MS}ms" }`);
     } else {
       const sleepMs = MIN_SCAN_INTERVAL_MS - durationMs;
-      console.log(`${PREFIX} ${new Date().toISOString()} loop_sleep_start { durationMs: ${sleepMs} }`);
       await sleep(sleepMs);
     }
   }

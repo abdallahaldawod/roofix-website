@@ -43,6 +43,7 @@ function toLeadActivity(id: string, d: DocumentData): LeadActivity {
     postedAtIso: d.postedAtIso ?? undefined,
     postedAtText: d.postedAtText ?? undefined,
     leadCost: d.leadCost ?? undefined,
+    leadCostCredits: d.leadCostCredits != null ? d.leadCostCredits : undefined,
     hipagesActions: d.hipagesActions ?? undefined,
     attachments: Array.isArray(d.attachments)
       ? (d.attachments as { url?: string; label?: string }[])
@@ -54,6 +55,23 @@ function toLeadActivity(id: string, d: DocumentData): LeadActivity {
       : undefined,
     platformAccepted: d.platformAccepted === true,
     jobId: typeof d.jobId === "string" ? d.jobId : undefined,
+    acceptedConfirmedFromJobsPage: d.acceptedConfirmedFromJobsPage === true,
+    acceptedConfirmedAt: toFsTimestamp(d.acceptedConfirmedAt),
+    jobsPageLastSeenAt: toFsTimestamp(d.jobsPageLastSeenAt),
+  };
+}
+
+function toFsTimestamp(
+  v: unknown
+): { seconds: number; nanoseconds: number } | undefined {
+  if (v == null || typeof v !== "object") return undefined;
+  const o = v as { seconds?: number; nanoseconds?: number; _seconds?: number; _nanoseconds?: number };
+  const sec = o.seconds ?? o._seconds;
+  const nano = o.nanoseconds ?? o._nanoseconds;
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return undefined;
+  return {
+    seconds: sec,
+    nanoseconds: typeof nano === "number" && Number.isFinite(nano) ? nano : 0,
   };
 }
 

@@ -4,7 +4,7 @@
 
 import { chromium } from "playwright";
 import { getSourcesAdmin } from "@/lib/leads/sources-admin";
-import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
+import { resolveLeadsStorageStateAbsolute } from "@/lib/leads/connection/session-persistence";
 
 const HIPAGES_CREDIT_URL = "https://business.hipages.com.au/leads";
 const NAVIGATION_TIMEOUT_MS = 25_000;
@@ -42,7 +42,7 @@ export async function fetchHipagesCredit(): Promise<FetchHipagesCreditResult> {
 
   let absolutePath: string;
   try {
-    absolutePath = resolveStorageStatePath(hipagesSource.storageStatePath.trim());
+    absolutePath = resolveLeadsStorageStateAbsolute(hipagesSource);
   } catch {
     return { ok: false, error: "Invalid session path for hipages source." };
   }

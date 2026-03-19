@@ -33,26 +33,6 @@ function toServiceAccount(raw: Record<string, unknown>): ServiceAccount {
 }
 
 function getKeyJson(): string {
-  // #region agent log
-  const _env = {
-    NODE_ENV: process.env.NODE_ENV,
-    hasKeyPath: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()),
-    hasKey: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()),
-    cwd: process.cwd(),
-  };
-  fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a8e7e3" },
-    body: JSON.stringify({
-      sessionId: "a8e7e3",
-      location: "lib/firebase/admin.ts:getKeyJson",
-      message: "getKeyJson entry",
-      data: _env,
-      timestamp: Date.now(),
-      hypothesisId: "H1-H4",
-    }),
-  }).catch(() => {});
-  // #endregion
   // Allow loading from a file path (dev and production, e.g. npm run start with .env.local)
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH;
   if (keyPath?.trim()) {
@@ -65,20 +45,6 @@ function getKeyJson(): string {
   }
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson || keyJson.trim() === "") {
-    // #region agent log
-    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a8e7e3" },
-      body: JSON.stringify({
-        sessionId: "a8e7e3",
-        location: "lib/firebase/admin.ts:getKeyJson",
-        message: "getKeyJson aboutToThrow",
-        data: { NODE_ENV: process.env.NODE_ENV, hasKeyPath: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()), hasKey: false },
-        timestamp: Date.now(),
-        hypothesisId: "H1-H2",
-      }),
-    }).catch(() => {});
-    // #endregion
     throw new Error(
       "FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_SERVICE_ACCOUNT_KEY_PATH is required. See .env.local.example."
     );

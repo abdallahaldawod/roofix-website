@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 import { FieldValue } from "firebase-admin/firestore";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
 import { updateSourceAuthAdmin, updateSourceScanResultAdmin } from "@/lib/leads/sources-admin";
-import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
+import { resolveLeadsStorageStateAbsolute } from "@/lib/leads/connection/session-persistence";
 import { urlReachesLeads } from "./session-validity";
 import { extractLeadsFromPage } from "./selector-extractor";
 import { getAdapter, getAdapterByUrl } from "./adapters/registry";
@@ -30,8 +30,9 @@ import { getActivityByIdAdmin, updateActivityAdmin, updateActivityRuleResultAdmi
 import { getRuleSetsAdmin } from "@/lib/leads/rule-sets-admin";
 import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
 import { incrementScanCountersAdmin } from "@/lib/leads/sources-admin";
-import { writeScanRunAdmin } from "@/lib/leads/scan-runs-admin";
 import { performHipagesAction } from "@/lib/leads/hipages-action";
+import { createActionRequest } from "@/lib/leads/action-queue-admin";
+import { runActionQueueCycle } from "./action-queue-worker";
 import type { LeadRuleSet, FsTimestamp, TriggerPlatformAction } from "@/lib/leads/types";
 import type { LeadActivityPlatformUpdate } from "@/lib/leads/activity-admin";
 import type { RawExtractedLead } from "./adapter-types";
@@ -54,6 +55,7 @@ function platformDataEquals(
     "postedAtIso",
     "postedAtText",
     "leadCost",
+    "leadCostCredits",
   ];
   for (const k of keys) {
     const p = payload[k];
@@ -80,6 +82,34 @@ function platformDataEquals(
     if (!Array.isArray(pAtt) || !Array.isArray(eAtt) || JSON.stringify(pAtt) !== JSON.stringify(eAtt)) return false;
   }
   return true;
+}
+
+async function triggerPlatformActionFast(params: {
+  sourceId: string;
+  actionPath: string;
+  action: TriggerPlatformAction;
+  leadId: string;
+}): Promise<{ ok: boolean; error?: string; step?: string }> {
+  if (params.action !== "accept") {
+    return performHipagesAction({
+      sourceId: params.sourceId,
+      actionPath: params.actionPath,
+      action: params.action,
+      leadId: params.leadId,
+    });
+  }
+  const externalIdMatch = params.actionPath.match(/^\/leads\/([^/]+)\//);
+  const queueId = await createActionRequest({
+    leadId: params.leadId,
+    sourceId: params.sourceId,
+    action: "accept",
+    requestedBy: "system:rule-trigger",
+    ...(externalIdMatch?.[1] ? { externalId: externalIdMatch[1] } : {}),
+    actionPath: params.actionPath,
+  });
+  if (!queueId) return { ok: false, error: "Could not queue accept action" };
+  void runActionQueueCycle().catch(() => {});
+  return { ok: true };
 }
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -146,10 +176,11 @@ export async function runBackgroundScan(
 
   let absolutePath: string;
   try {
-    absolutePath = resolveStorageStatePath(storageStatePath);
-  } catch {
-    logScan("scan_failed", { sourceId, stage: "session_resolve", error: "Invalid session path." });
-    return { ok: false, error: "Invalid session path." };
+    absolutePath = resolveLeadsStorageStateAbsolute(source);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Invalid session path.";
+    logScan("scan_failed", { sourceId, stage: "session_resolve", error: msg });
+    return { ok: false, error: msg };
   }
   logScan("session_loaded", { sourceId });
 
@@ -163,12 +194,6 @@ export async function runBackgroundScan(
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     logScan("scan_failed", { sourceId, stage: "browser_launch", error: err });
-    await writeScanRunAdmin({
-      sourceId,
-      startedAtMs,
-      status: "failed",
-      errorMessage: err,
-    });
     return { ok: false, error: err };
   }
 
@@ -199,12 +224,6 @@ export async function runBackgroundScan(
         lastScanStatus: "failed",
         lastScanError: userMessage,
         lastScanDurationMs: Date.now() - startedAtMs,
-      });
-      await writeScanRunAdmin({
-        sourceId,
-        startedAtMs,
-        status: "failed",
-        errorMessage: userMessage,
       });
       return { ok: false, error: userMessage };
     }
@@ -253,33 +272,7 @@ export async function runBackgroundScan(
                 .locator(effectiveCardSelector)
                 .first()
                 .waitFor({ state: "attached", timeout: WAIT_FOR_CARDS_MS });
-            } catch (waitErr) {
-              // #region agent log
-              const failUrl = page.url();
-              const failTitle = await page.title().catch(() => "");
-              const failCardCount = effectiveCardSelector
-                ? await page.locator(effectiveCardSelector).count().catch(() => -1)
-                : -1;
-              fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" },
-                body: JSON.stringify({
-                  sessionId: "7a5692",
-                  location: "background-scan-runner.ts:wait_cards_failed",
-                  message: "wait_cards failed diagnostics",
-                  data: {
-                    sourceId,
-                    selector: effectiveCardSelector ?? null,
-                    pageUrl: failUrl,
-                    pageTitle: failTitle?.slice(0, 120),
-                    cardCountAtFail: failCardCount,
-                    waitTimeoutMs: WAIT_FOR_CARDS_MS,
-                  },
-                  timestamp: Date.now(),
-                  hypothesisId: "A",
-                }),
-              }).catch(() => {});
-              // #endregion
+            } catch {
               await browser.close();
               logScan("scan_failed", {
                 sourceId,
@@ -291,13 +284,6 @@ export async function runBackgroundScan(
                 lastScanStatus: "failed",
                 lastScanError: NO_CARDS_MESSAGE,
                 lastScanDurationMs: Date.now() - startedAtMs,
-              });
-              await writeScanRunAdmin({
-                sourceId,
-                startedAtMs,
-                status: "failed",
-                errorMessage: NO_CARDS_MESSAGE,
-                debug: { pageUrl: failUrl, pageTitle: failTitle },
               });
               return { ok: false, error: NO_CARDS_MESSAGE };
             }
@@ -356,13 +342,6 @@ export async function runBackgroundScan(
               lastScanDebug: debugLocal,
               lastScanDurationMs: Date.now() - startedAtMs,
             });
-            await writeScanRunAdmin({
-              sourceId,
-              startedAtMs,
-              status: "failed",
-              errorMessage: NO_CARDS_MESSAGE,
-              debug: debugLocal,
-            });
             return { ok: false, error: NO_CARDS_MESSAGE };
           }
 
@@ -391,9 +370,6 @@ export async function runBackgroundScan(
               const activity = await getActivityByIdAdmin(activityId);
               if (activity) {
                 const payload = buildPlatformUpdateFromScannedLead(normalized);
-                // #region agent log
-                fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:rescan platform update", message: "payload leadCost (existing lead)", data: { activityId, payloadLeadCost: payload.leadCost, activityLeadCost: activity.leadCost }, timestamp: Date.now(), hypothesisId: "B" }) }).catch(() => {});
-                // #endregion
                 if (!platformDataEquals(payload, activity)) {
                   await updateActivityAdmin(activityId, payload).catch((err) => {
                     logScan("update_activity_failed", {
@@ -429,13 +405,15 @@ export async function runBackgroundScan(
                   const decisionKey = ruleResult.decision.toLowerCase() as "accept" | "review" | "reject";
                   const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
                   const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
-                  const actionPath = triggerAction && hipagesActions?.[triggerAction];
+                  // When "accept" was normalized to waitlist (Join Waitlist), use waitlist path and action "waitlist".
+                  const actionPath = triggerAction && (hipagesActions?.[triggerAction] ?? (triggerAction === "accept" ? hipagesActions?.waitlist : undefined));
+                  const effectiveAction: TriggerPlatformAction = (triggerAction === "accept" && actionPath === hipagesActions?.waitlist) ? "waitlist" : triggerAction!;
                   if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
                     try {
-                      const actionResult = await performHipagesAction({
+                      const actionResult = await triggerPlatformActionFast({
                         sourceId: source.id,
                         actionPath: actionPath.trim(),
-                        action: triggerAction,
+                        action: effectiveAction,
                         leadId: activityId,
                       });
                       if (actionResult.ok) {
@@ -486,9 +464,6 @@ export async function runBackgroundScan(
               const activity = await getActivityByIdAdmin(activityId);
               if (activity) {
                 const payload = buildPlatformUpdateFromScannedLead(normalized);
-                // #region agent log
-                fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:rescan platform update (re-fetch)", message: "payload leadCost (existing lead)", data: { activityId, payloadLeadCost: payload.leadCost, activityLeadCost: activity.leadCost }, timestamp: Date.now(), hypothesisId: "B" }) }).catch(() => {});
-                // #endregion
                 if (!platformDataEquals(payload, activity)) {
                   await updateActivityAdmin(activityId, payload).catch((err) => {
                     logScan("update_activity_failed", {
@@ -532,29 +507,7 @@ export async function runBackgroundScan(
               duplicate++;
               continue;
             }
-            // Reuse existing scanned_lead doc when present (avoids duplicate rows when activityId was never set).
-            let rawId: string | null;
-            if (existingForImport) {
-              rawId = existingForImport.id;
-            } else {
-              rawId = await writeScannedLeadRaw({
-                sourceId: source.id,
-                sourceName: source.name,
-                externalId: normalized.externalId,
-                dedupeKey,
-                title: normalized.title,
-                description: normalized.description,
-                suburb: normalized.suburb,
-                postcode: normalized.postcode,
-                raw: normalized.raw,
-              });
-              if (!rawId) {
-                failedImport++;
-                continue;
-              }
-            }
-            extracted++;
-
+            // Write lead_activity first so the UI sees the new lead immediately; then persist raw to scanned_leads and link.
             try {
               const processResult = await processScannedLead(
                 normalized,
@@ -565,6 +518,27 @@ export async function runBackgroundScan(
                 failedImport++;
                 continue;
               }
+              let rawId: string | null;
+              if (existingForImport) {
+                rawId = existingForImport.id;
+              } else {
+                rawId = await writeScannedLeadRaw({
+                  sourceId: source.id,
+                  sourceName: source.name,
+                  externalId: normalized.externalId,
+                  dedupeKey,
+                  title: normalized.title,
+                  description: normalized.description,
+                  suburb: normalized.suburb,
+                  postcode: normalized.postcode,
+                  raw: normalized.raw,
+                });
+                if (!rawId) {
+                  failedImport++;
+                  continue;
+                }
+              }
+              extracted++;
               await updateScannedLeadRawActivityId(rawId, processResult.activityId);
               await incrementScanCountersAdmin(
                 source.id,
@@ -578,21 +552,20 @@ export async function runBackgroundScan(
                 decision: processResult.decision,
                 title: normalized.title?.slice(0, 60),
               });
-              // #region agent log
-              fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:new lead imported", message: "lead_imported_with_cost", data: { activityId: processResult.activityId, leadCost: normalized.raw?.leadCost ?? null }, timestamp: Date.now(), hypothesisId: "C" }) }).catch(() => {});
-              // #endregion
 
               // When rule set has a trigger platform action for this decision, press the button on the platform (e.g. hipages).
               const decisionKey = processResult.decision.toLowerCase() as "accept" | "review" | "reject";
               const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
               const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
-              const actionPath = triggerAction && hipagesActions?.[triggerAction];
+              // When "accept" was normalized to waitlist (Join Waitlist), use waitlist path and action "waitlist".
+              const actionPath = triggerAction && (hipagesActions?.[triggerAction] ?? (triggerAction === "accept" ? hipagesActions?.waitlist : undefined));
+              const effectiveAction: TriggerPlatformAction = (triggerAction === "accept" && actionPath === hipagesActions?.waitlist) ? "waitlist" : triggerAction!;
               if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
                 try {
-                  const actionResult = await performHipagesAction({
+                  const actionResult = await triggerPlatformActionFast({
                     sourceId: source.id,
                     actionPath: actionPath.trim(),
-                    action: triggerAction,
+                    action: effectiveAction,
                     leadId: processResult.activityId,
                   });
                   if (actionResult.ok) {
@@ -660,12 +633,6 @@ export async function runBackgroundScan(
             lastScanError: errorMessage,
             lastScanDurationMs: Date.now() - startedAtMs,
           });
-          await writeScanRunAdmin({
-            sourceId,
-            startedAtMs,
-            status: "failed",
-            errorMessage: errorMessage,
-          });
           return { ok: false, error: errorMessage };
         }
       }
@@ -683,17 +650,6 @@ export async function runBackgroundScan(
         lastScanFailedImport: failedImport,
         lastScanDurationMs: durationMs,
         ...(lastScanDebug != null ? { lastScanDebug } : {}),
-      });
-      await writeScanRunAdmin({
-        sourceId,
-        startedAtMs,
-        status: "success",
-        extracted,
-        duplicate,
-        imported,
-        failedExtraction,
-        failedImport,
-        debug: lastScanDebug,
       });
       logScan("scan_done", { sourceId, status: "success" });
       return {
@@ -720,12 +676,6 @@ export async function runBackgroundScan(
       lastScanError: message,
       lastScanDurationMs: Date.now() - startedAtMs,
     });
-    await writeScanRunAdmin({
-      sourceId,
-      startedAtMs,
-      status: "needs_reconnect",
-      errorMessage: message,
-    });
     return { ok: false, error: message, needsReconnect: true };
   } catch (e) {
     try {
@@ -740,12 +690,6 @@ export async function runBackgroundScan(
       lastScanStatus: "failed",
       lastScanError: errorMessage,
       lastScanDurationMs: Date.now() - startedAtMs,
-    });
-    await writeScanRunAdmin({
-      sourceId,
-      startedAtMs,
-      status: "failed",
-      errorMessage: errorMessage,
     });
     return { ok: false, error: errorMessage };
   }

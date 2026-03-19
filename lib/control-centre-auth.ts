@@ -39,20 +39,6 @@ export async function requireControlCentreAuth(
     return { ok: true, uid };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Invalid token";
-    // #region agent log
-    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a8e7e3" },
-      body: JSON.stringify({
-        sessionId: "a8e7e3",
-        location: "lib/control-centre-auth.ts:requireControlCentreAuth",
-        message: "control-centre auth catch",
-        data: { message },
-        timestamp: Date.now(),
-        hypothesisId: "H4",
-      }),
-    }).catch(() => {});
-    // #endregion
     console.warn("[control-centre auth] Unauthorized:", message);
     return {
       ok: false,

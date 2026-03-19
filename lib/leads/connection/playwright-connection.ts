@@ -13,7 +13,10 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 export type RunManualConnectionOptions = {
   loginUrl: string;
   leadsUrl: string;
+  /** Primary Playwright storage state file (e.g. leads session). */
   storageStatePath: string;
+  /** Additional paths to write the same session (e.g. jobs session file). */
+  extraStorageStatePaths?: string[];
   timeoutMs?: number;
 };
 
@@ -51,12 +54,18 @@ function urlReachesLeads(currentUrl: URL, leadsUrl: string): boolean {
 /**
  * Runs the manual connection flow: launches a visible browser, opens loginUrl,
  * waits until the page URL reaches leadsUrl (or timeout/browser closed), then
- * saves storage state to storageStatePath and closes the browser.
+ * saves storage state to storageStatePath (and optional extra paths) and closes the browser.
  */
 export async function runManualConnection(
   options: RunManualConnectionOptions
 ): Promise<RunManualConnectionResult> {
-  const { loginUrl, leadsUrl, storageStatePath, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+  const {
+    loginUrl,
+    leadsUrl,
+    storageStatePath,
+    extraStorageStatePaths = [],
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = options;
 
   if (!loginUrl?.trim() || !leadsUrl?.trim()) {
     return { ok: false, error: "Login URL and Leads URL are required." };
@@ -129,8 +138,11 @@ export async function runManualConnection(
   }
 
   // result === "reached"
+  const allPaths = [storageStatePath, ...extraStorageStatePaths.map((p) => p.trim()).filter(Boolean)];
   try {
-    await context.storageState({ path: storageStatePath });
+    for (const path of allPaths) {
+      await context.storageState({ path });
+    }
   } catch (e) {
     try {
       await browser.close();

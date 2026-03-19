@@ -2,15 +2,27 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
-import { Search, Eye, Loader2, AlertCircle, Settings, Trash2, ChevronUp, ChevronDown, Check } from "lucide-react";
+import { Search, Eye, Loader2, AlertCircle, Settings, Trash2, ChevronUp, ChevronDown, Check, Zap } from "lucide-react";
 import { useControlCentreBase } from "../use-base-path";
 import { PushNotifySubscribe } from "../PushNotifySubscribe";
 import { StatCard } from "./StatCard";
 import { ActivityLeadModal } from "./ActivityLeadModal";
 import { subscribeToActivity, deleteActivity, deleteActivities } from "@/lib/leads/activity";
 import { getSources } from "@/lib/leads/sources";
+import { getRuleSets } from "@/lib/leads/rule-sets";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import type { LeadActivity, LeadDecision, LeadActivityStatus } from "@/lib/leads/types";
+import {
+  subscribeToLeadActionQueue,
+  getActionStatus,
+  type ActionStatusByLeadAndAction,
+  type LeadActionStatus,
+} from "@/lib/leads/action-queue-client";
+import { subscribeToSettings, saveSettings, DEFAULT_SETTINGS } from "@/lib/leads/settings";
+import type { LeadActivity, LeadDecision, LeadActivityStatus, LeadRuleSet, LeadSource } from "@/lib/leads/types";
+
+const HIPAGES_CREDIT_CACHE_TTL_MS = 60_000;
+let hipagesCreditCache: { value: string | null; error: string | null; at: number } | null = null;
+let hipagesCreditInFlight: Promise<{ value: string | null; error: string | null }> | null = null;
 
 const DECISION_STYLES: Record<LeadDecision, string> = {
   Accept: "bg-emerald-50 text-emerald-800",
@@ -122,15 +134,34 @@ function formatReasons(reasons: string[] | undefined): string {
   return reasons.slice(0, 2).join("; ") + (reasons.length > 2 ? "…" : "");
 }
 
+/** Display string for lead cost (leadCost string or "X credits" from leadCostCredits). */
+function formatLeadCost(lead: LeadActivity): string {
+  if (lead.leadCost && lead.leadCost.trim() !== "") return lead.leadCost;
+  if (lead.leadCostCredits != null && Number.isFinite(lead.leadCostCredits)) return `${lead.leadCostCredits} credits`;
+  return "—";
+}
+
 function suburbPostcode(lead: LeadActivity): string {
   const parts = [lead.suburb].filter(Boolean);
   if (lead.postcode) parts.push(lead.postcode);
   return parts.join(" / ") || "—";
 }
 
+function deriveAcceptPathForTesting(lead: LeadActivity): string | null {
+  const direct = lead.hipagesActions?.accept?.trim();
+  if (direct) return direct;
+  const fallback =
+    lead.hipagesActions?.decline?.trim() ||
+    lead.hipagesActions?.waitlist?.trim();
+  if (!fallback) return null;
+  const m = fallback.match(/^\/leads\/([^/]+)\/(accept|decline|waitlist)(?:\?.*)?$/);
+  if (!m?.[1]) return null;
+  return `/leads/${m[1]}/accept`;
+}
+
 /** Parse leadCost to a number for sorting (e.g. "$12.50" → 12.5, "30 credits" → 30, "Free" → 0). Missing/invalid → null. */
-function parseLeadCostToNumber(leadCost: string | undefined): number | null {
-  if (!leadCost || typeof leadCost !== "string") return null;
+function parseLeadCostToNumber(leadCost: string | null | undefined): number | null {
+  if (leadCost == null || typeof leadCost !== "string") return null;
   const t = leadCost.trim();
   if (/^free$/i.test(t)) return 0;
   const dollar = /^\$(\d+(?:\.\d+)?)$/.exec(t);
@@ -173,9 +204,12 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [hipagesActingId, setHipagesActingId] = useState<string | null>(null);
-  const [hipagesActionResult, setHipagesActionResult] = useState<Record<string, "accept" | "decline" | "waitlist" | "error">>({});
   /** When action fails, store the API error message (and optional step) for display. */
   const [hipagesActionError, setHipagesActionError] = useState<Record<string, string>>({});
+  /** Real-time queue status per lead and action (pending → processing → success/failed). */
+  const [actionStatusByLeadAndAction, setActionStatusByLeadAndAction] = useState<ActionStatusByLeadAndAction>({});
+  /** UI-level pending actions stay loading until the lead row reflects the result. */
+  const [pendingActionKeys, setPendingActionKeys] = useState<Set<string>>(new Set());
   const [fetchCustomerLeadId, setFetchCustomerLeadId] = useState<string | null>(null);
 
   const [filterSource, setFilterSource] = useState("");
@@ -184,25 +218,25 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [filterDate, setFilterDate] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
 
-  /** "new" = New leads (not yet accepted on platform), "accepted" = Accepted leads (platformAccepted) */
-  const [leadsTableView, setLeadsTableView] = useState<"new" | "accepted">("new");
-  const [lastAcceptedSyncAt, setLastAcceptedSyncAt] = useState<number | null>(null);
-  const [tick, setTick] = useState(0);
   const [lastLeadsUpdateAt, setLastLeadsUpdateAt] = useState<number | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [acceptedSyncInProgress, setAcceptedSyncInProgress] = useState(false);
-  const acceptedSyncInProgressRef = useRef(false);
   const [hipagesCredit, setHipagesCredit] = useState<string | null>(null);
-  const [hipagesCreditLoading, setHipagesCreditLoading] = useState(false);
   const [hipagesCreditError, setHipagesCreditError] = useState<string | null>(null);
   const [scanNewInProgress, setScanNewInProgress] = useState(false);
   const [scanNewError, setScanNewError] = useState<string | null>(null);
-  const [clearFreeCostInProgress, setClearFreeCostInProgress] = useState(false);
-  const [clearFreeCostMessage, setClearFreeCostMessage] = useState<string | null>(null);
+  const [sources, setSources] = useState<LeadSource[]>([]);
+  const [ruleSets, setRuleSets] = useState<LeadRuleSet[]>([]);
+  const [autoApplyRulesEnabled, setAutoApplyRulesEnabled] = useState<boolean>(DEFAULT_SETTINGS.automationEnabled);
+  const [autoApplyRulesLoading, setAutoApplyRulesLoading] = useState(true);
+  const [autoApplyRulesSaving, setAutoApplyRulesSaving] = useState(false);
 
   type SortBy = "cost" | "posted";
   const [sortBy, setSortBy] = useState<SortBy>("posted");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const queueActionKey = useCallback(
+    (leadId: string, action: "accept" | "decline" | "waitlist") => `${leadId}:${action}`,
+    []
+  );
 
   // Apply ?source= from URL (e.g. from "View leads from this source")
   useEffect(() => {
@@ -227,12 +261,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           const added = data.length - prevCount;
           setNewLeadsBanner(added);
         }
-        // #region agent log
-        const noCostHipages = data.filter((l) => !l.leadCost && (l.sourceName?.toLowerCase().includes("hipages") ?? false));
-        if (noCostHipages.length > 0) {
-          fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "LeadsPageClient.tsx:subscribe", message: "leads_without_cost_hipages", data: { activityIds: noCostHipages.slice(0, 15).map((l) => l.id), count: noCostHipages.length }, timestamp: Date.now(), hypothesisId: "A" }) }).catch(() => {});
-        }
-        // #endregion
       },
       (err) => {
         setError(err.message);
@@ -241,6 +269,74 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     );
     return () => unsubscribe();
   }, [retryCount]);
+
+  // Load sources (execution mode) and rule sets (Reject → Decline trigger test).
+  useEffect(() => {
+    getSources().then(setSources).catch(() => setSources([]));
+    getRuleSets().then(setRuleSets).catch(() => setRuleSets([]));
+  }, []);
+
+  // Global automation toggle (same as Lead Management "Automation" — lead_settings/global.automationEnabled).
+  useEffect(() => {
+    setAutoApplyRulesLoading(true);
+    const unsub = subscribeToSettings(
+      (settings) => {
+        setAutoApplyRulesEnabled(settings.automationEnabled);
+        setAutoApplyRulesLoading(false);
+      },
+      () => setAutoApplyRulesLoading(false)
+    );
+    return unsub;
+  }, []);
+
+  // Real-time subscription to lead action queue so we show pending/processing/success/failed.
+  useEffect(() => {
+    const leadIds = leads.map((l) => l.id);
+    if (leadIds.length === 0) {
+      setActionStatusByLeadAndAction({});
+      return;
+    }
+    const unsubscribe = subscribeToLeadActionQueue(
+      leadIds,
+      setActionStatusByLeadAndAction,
+      () => {}
+    );
+    return () => unsubscribe();
+  }, [leads]);
+
+  useEffect(() => {
+    if (pendingActionKeys.size === 0) return;
+    setPendingActionKeys((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      let changed = false;
+      for (const key of prev) {
+        const [leadId, actionRaw] = key.split(":");
+        if (!leadId || (actionRaw !== "accept" && actionRaw !== "decline" && actionRaw !== "waitlist")) continue;
+        const action = actionRaw as "accept" | "decline" | "waitlist";
+        const status = getActionStatus(actionStatusByLeadAndAction, leadId, action);
+        if (status?.status === "failed") {
+          next.delete(key);
+          changed = true;
+          continue;
+        }
+        if (status?.status !== "success") continue;
+        const lead = leads.find((l) => l.id === leadId);
+        // Keep loading until the row reflects the success (button path removed) or row disappears.
+        const actionStillVisible =
+          action === "accept"
+            ? !!lead?.hipagesActions?.accept
+            : action === "decline"
+              ? !!lead?.hipagesActions?.decline
+              : !!lead?.hipagesActions?.waitlist;
+        if (!lead || !actionStillVisible) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [pendingActionKeys, actionStatusByLeadAndAction, leads]);
 
   useEffect(() => {
     if (newLeadsBanner === null) return;
@@ -255,72 +351,45 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     return token;
   }, []);
 
-  // Fetch hipages credit once on mount (business.hipages.com.au)
+  // Fetch hipages credit once on mount (business.hipages.com.au). Silent: no loading state; previous value stays until new data arrives.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setHipagesCreditLoading(true);
-      setHipagesCreditError(null);
       try {
-        const token = await getToken();
-        const res = await fetch("/api/control-centre/leads/hipages-credit", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json().catch(() => ({}));
+        const now = Date.now();
+        if (hipagesCreditCache && now - hipagesCreditCache.at < HIPAGES_CREDIT_CACHE_TTL_MS) {
+          if (!cancelled) {
+            setHipagesCredit(hipagesCreditCache.value);
+            setHipagesCreditError(hipagesCreditCache.error);
+          }
+          return;
+        }
+        if (!hipagesCreditInFlight) {
+          hipagesCreditInFlight = (async () => {
+            const token = await getToken();
+            const res = await fetch("/api/control-centre/leads/hipages-credit", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json().catch(() => ({}));
+            const result =
+              data.ok === true && typeof data.credit === "string"
+                ? { value: data.credit as string, error: null }
+                : { value: null, error: (typeof data.error === "string" ? data.error : "Failed to load") };
+            hipagesCreditCache = { ...result, at: Date.now() };
+            return result;
+          })().finally(() => {
+            hipagesCreditInFlight = null;
+          });
+        }
+        const result = await hipagesCreditInFlight;
         if (cancelled) return;
-        if (data.ok === true && typeof data.credit === "string") {
-          setHipagesCredit(data.credit);
-        } else {
-          setHipagesCredit(null);
-          setHipagesCreditError(typeof data.error === "string" ? data.error : null);
-        }
+        setHipagesCredit(result.value);
+        setHipagesCreditError(result.error);
       } catch {
-        if (!cancelled) {
-          setHipagesCredit(null);
-          setHipagesCreditError("Failed to load");
-        }
-      } finally {
-        if (!cancelled) setHipagesCreditLoading(false);
+        if (!cancelled) setHipagesCreditError("Failed to load");
       }
     })();
     return () => { cancelled = true; };
-  }, [getToken]);
-
-  // Update "Last updated Xs ago" every 2s when recent, so the status line stays current
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 2_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const runAcceptedSync = useCallback(async () => {
-    if (acceptedSyncInProgressRef.current) return;
-    acceptedSyncInProgressRef.current = true;
-    setAcceptedSyncInProgress(true);
-    try {
-      const sources = await getSources();
-      const hipages = sources.filter(
-        (s) => s.storageStatePath && s.name.toLowerCase().includes("hipages")
-      );
-      if (hipages.length === 0) {
-        return;
-      }
-      const token = await getToken();
-      const res = await fetch("/api/control-centre/leads/import-hipages-jobs", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ sourceId: hipages[0].id }),
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) setLastAcceptedSyncAt(Date.now());
-    } catch {
-      /* ignore background sync errors */
-    } finally {
-      acceptedSyncInProgressRef.current = false;
-      setAcceptedSyncInProgress(false);
-    }
   }, [getToken]);
 
   /** Run background scan for Hipages source(s) to pull new leads into the table. */
@@ -360,34 +429,19 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     }
   }, [getToken]);
 
-  /** Clear erroneous "Free" leadCost on Hipages leads (from "free quote" etc.). */
-  const runClearFreeCost = useCallback(async () => {
-    setClearFreeCostMessage(null);
-    setClearFreeCostInProgress(true);
+  const toggleAutoApplyRules = useCallback(async () => {
+    if (autoApplyRulesSaving) return;
+    const nextValue = !autoApplyRulesEnabled;
+    setAutoApplyRulesSaving(true);
+    setAutoApplyRulesEnabled(nextValue);
     try {
-      const token = await getToken();
-      const res = await fetch("/api/control-centre/leads/clear-free-cost", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setClearFreeCostMessage(data?.error ?? "Request failed");
-        return;
-      }
-      const n = typeof data.updated === "number" ? data.updated : 0;
-      setClearFreeCostMessage(n === 0 ? "No leads needed updating" : `Cleared cost for ${n} lead${n === 1 ? "" : "s"}`);
-      setLastLeadsUpdateAt(Date.now());
-      if (n > 0) setTimeout(() => setClearFreeCostMessage(null), 5000);
-    } catch (e) {
-      setClearFreeCostMessage(e instanceof Error ? e.message : "Request failed");
+      await saveSettings({ automationEnabled: nextValue });
+    } catch {
+      setAutoApplyRulesEnabled((prev) => !prev);
     } finally {
-      setClearFreeCostInProgress(false);
+      setAutoApplyRulesSaving(false);
     }
-  }, [getToken]);
+  }, [autoApplyRulesEnabled, autoApplyRulesSaving]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead? This cannot be undone.")) return;
@@ -427,11 +481,13 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const handleHipagesAction = useCallback(
     async (lead: LeadActivity, action: "accept" | "decline" | "waitlist", actionPath: string) => {
       if (hipagesActingId) return;
+      const key = queueActionKey(lead.id, action);
+      setPendingActionKeys((prev) => new Set(prev).add(key));
       setHipagesActingId(`${lead.id}-${action}`);
       setHipagesActionError((prev) => ({ ...prev, [lead.id]: "" }));
       try {
         const token = await getToken();
-        const res = await fetch("/api/control-centre/leads/hipages-action", {
+        const res = await fetch("/api/control-centre/leads/action-queue", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -441,32 +497,30 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
         });
         const data = await res.json();
         const ok = data.ok === true;
-        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: ok ? action : "error" }));
         if (!ok) {
-          const errMsg = typeof data.error === "string" ? data.error : "Action failed";
-          const step = typeof data.step === "string" ? data.step : "";
-          setHipagesActionError((prev) => ({ ...prev, [lead.id]: step ? `${errMsg} (${step})` : errMsg }));
+          const errMsg = typeof data.error === "string" ? data.error : "Could not queue action";
+          setHipagesActionError((prev) => ({ ...prev, [lead.id]: errMsg }));
+          setPendingActionKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
         } else {
-          handleFetchCustomer(lead.id, lead.sourceId).catch(() => {});
-          if (action === "accept") runAcceptedSync().catch(() => {});
-          // Clear success state after 2.5s so the button label resets (in case lead stays in list)
-          setTimeout(() => {
-            setHipagesActionResult((prev) => {
-              const next = { ...prev };
-              delete next[lead.id];
-              return next;
-            });
-          }, 2500);
+          // Keep queued state until queue status + row update clear the pending key.
         }
       } catch (e) {
-        const errMsg = e instanceof Error ? e.message : "Request failed";
-        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: "error" }));
+        const errMsg = e instanceof Error ? e.message : "Could not queue action";
         setHipagesActionError((prev) => ({ ...prev, [lead.id]: errMsg }));
+        setPendingActionKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       } finally {
         setHipagesActingId(null);
       }
     },
-    [hipagesActingId, getToken, handleFetchCustomer, runAcceptedSync]
+    [hipagesActingId, getToken, queueActionKey]
   );
 
   const handleBulkDelete = useCallback(async () => {
@@ -483,6 +537,211 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     }
   }, [checkedIds, getToken]);
 
+  /** Button label and disabled for a given lead and queue action (accept/decline/waitlist). */
+  const getQueueActionButton = useCallback(
+    (
+      leadId: string,
+      action: "accept" | "decline" | "waitlist",
+      optimisticQueued: boolean
+    ): { label: string; disabled: boolean; title?: string } => {
+      const status = getActionStatus(actionStatusByLeadAndAction, leadId, action);
+      const loading = hipagesActingId === `${leadId}-${action}`;
+      const disabled =
+        !!hipagesActingId ||
+        status?.status === "pending" ||
+        status?.status === "processing";
+      if (loading) return { label: "Queuing…", disabled: true };
+      if (status?.status === "pending") return { label: "Pending…", disabled: true, title: "Pending local execution" };
+      if (status?.status === "processing") return { label: "Processing…", disabled: true, title: "Running on local worker" };
+      if (status?.status === "success") {
+        const done =
+          action === "accept" ? "Accepted" : action === "decline" ? "Declined" : "Waitlisted";
+        return { label: done, disabled: false, title: `${action} succeeded` };
+      }
+      if (status?.status === "failed") {
+        const short = status.error ? (status.error.length > 35 ? `${status.error.slice(0, 35)}…` : status.error) : "Failed";
+        return { label: `Failed: ${short}`, disabled: false, title: status.error ?? "Action failed" };
+      }
+      if (optimisticQueued) return { label: "Updating…", disabled: true, title: "Waiting for table update" };
+      return { label: action === "accept" ? "Accept" : action === "decline" ? "Decline" : "Waitlist", disabled: false };
+    },
+    [actionStatusByLeadAndAction, hipagesActingId]
+  );
+
+  const isActionPendingUi = useCallback(
+    (leadId: string, action: "accept" | "decline" | "waitlist") =>
+      pendingActionKeys.has(queueActionKey(leadId, action)),
+    [pendingActionKeys, queueActionKey]
+  );
+
+  const shouldShowActionSpinner = useCallback(
+    (leadId: string, action: "accept" | "decline" | "waitlist", label: string) =>
+      hipagesActingId === `${leadId}-${action}` ||
+      label === "Queuing…" ||
+      label === "Pending…" ||
+      label === "Processing…" ||
+      label === "Updating…",
+    [hipagesActingId]
+  );
+
+  const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
+  const canQueueActionsForLead = useCallback(
+    (sourceId: string) => (sourcesById.get(sourceId)?.executionMode ?? "local_execute") !== "scan_only",
+    [sourcesById]
+  );
+
+  /** Queue Decline for the single checked lead — same action-queue path as row Decline; optional rule-set check vs Reject trigger. */
+  const handleTestAutoDeclineTrigger = useCallback(async () => {
+    if (checkedIds.size !== 1) {
+      window.alert("Select exactly one lead, then use Trigger to test the auto decline path.");
+      return;
+    }
+    const [leadId] = [...checkedIds];
+    const lead = leads.find((l) => l.id === leadId);
+    if (!lead) {
+      window.alert("That lead is not loaded. Clear filters or select a lead from the list.");
+      return;
+    }
+    if (!canQueueActionsForLead(lead.sourceId)) {
+      window.alert("Decline cannot be queued for this source (execution mode is Scan only).");
+      return;
+    }
+    const declinePath = lead.hipagesActions?.decline?.trim();
+    if (!declinePath) {
+      window.alert("This lead has no hipages Decline link (it may already be acted on).");
+      return;
+    }
+    if (hipagesActingId) return;
+
+    const source = sourcesById.get(lead.sourceId);
+    const ruleSet = source?.ruleSetId
+      ? ruleSets.find((r) => r.id === source.ruleSetId)
+      : undefined;
+    const rejectTrigger = ruleSet?.triggerPlatformActions?.reject ?? undefined;
+
+    if (rejectTrigger === "decline") {
+      await handleHipagesAction(lead, "decline", declinePath);
+      return;
+    }
+    if (rejectTrigger != null) {
+      const ok = window.confirm(
+        `Rule set Reject trigger is “${rejectTrigger}”, not Decline. Queue Decline anyway (same queue as manual Decline)?`
+      );
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(
+        "No platform action is set for Reject on this source’s rule set. Queue Decline anyway to test the worker?"
+      );
+      if (!ok) return;
+    }
+    await handleHipagesAction(lead, "decline", declinePath);
+  }, [
+    checkedIds,
+    leads,
+    canQueueActionsForLead,
+    hipagesActingId,
+    sourcesById,
+    ruleSets,
+    handleHipagesAction,
+  ]);
+
+  /** Queue Accept for the single checked lead — same action-queue path as row Accept; optional rule-set check vs Accept trigger. */
+  const handleTestAutoAcceptTrigger = useCallback(async () => {
+    if (checkedIds.size !== 1) {
+      window.alert("Select exactly one lead, then use Trigger Accept to test the auto accept path.");
+      return;
+    }
+    const [leadId] = [...checkedIds];
+    const lead = leads.find((l) => l.id === leadId);
+    if (!lead) {
+      window.alert("That lead is not loaded. Clear filters or select a lead from the list.");
+      return;
+    }
+    if (!canQueueActionsForLead(lead.sourceId)) {
+      window.alert("Accept cannot be queued for this source (execution mode is Scan only).");
+      return;
+    }
+    const acceptPath = deriveAcceptPathForTesting(lead);
+    if (!acceptPath) {
+      window.alert("This lead has no usable hipages action path to derive Accept.");
+      return;
+    }
+    if (hipagesActingId) return;
+
+    const source = sourcesById.get(lead.sourceId);
+    const ruleSet = source?.ruleSetId
+      ? ruleSets.find((r) => r.id === source.ruleSetId)
+      : undefined;
+    const acceptTrigger = ruleSet?.triggerPlatformActions?.accept ?? undefined;
+
+    if (acceptTrigger === "accept") {
+      await handleHipagesAction(lead, "accept", acceptPath);
+      return;
+    }
+    if (acceptTrigger != null) {
+      const ok = window.confirm(
+        `Rule set Accept trigger is “${acceptTrigger}”, not Accept. Queue Accept anyway (same queue as manual Accept)?`
+      );
+      if (!ok) return;
+    } else {
+      const ok = window.confirm(
+        "No platform action is set for Accept on this source’s rule set. Queue Accept anyway to test the worker?"
+      );
+      if (!ok) return;
+    }
+    await handleHipagesAction(lead, "accept", acceptPath);
+  }, [
+    checkedIds,
+    leads,
+    canQueueActionsForLead,
+    hipagesActingId,
+    sourcesById,
+    ruleSets,
+    handleHipagesAction,
+  ]);
+
+  const singleCheckedLead = useMemo(() => {
+    if (checkedIds.size !== 1) return null;
+    const id = [...checkedIds][0];
+    return leads.find((l) => l.id === id) ?? null;
+  }, [checkedIds, leads]);
+
+  const testDeclineTriggerEnabled =
+    !!singleCheckedLead &&
+    canQueueActionsForLead(singleCheckedLead.sourceId) &&
+    !!singleCheckedLead.hipagesActions?.decline?.trim() &&
+    !hipagesActingId &&
+    !bulkDeleting;
+
+  const testAcceptTriggerEnabled =
+    !!singleCheckedLead &&
+    canQueueActionsForLead(singleCheckedLead.sourceId) &&
+    !!deriveAcceptPathForTesting(singleCheckedLead) &&
+    !hipagesActingId &&
+    !bulkDeleting;
+
+  const testDeclineTriggerTitle = (() => {
+    if (checkedIds.size === 0) return "Select a lead with the checkbox";
+    if (checkedIds.size > 1) return "Select exactly one lead";
+    if (!singleCheckedLead) return "Lead not in current list — clear filters";
+    if (!canQueueActionsForLead(singleCheckedLead.sourceId)) return "Source is Scan only — change execution mode in Lead Management";
+    if (!singleCheckedLead.hipagesActions?.decline?.trim()) return "No Decline action on this lead";
+    if (hipagesActingId) return "Wait for the current action to finish";
+    if (bulkDeleting) return "Wait for delete to finish";
+    return "Queue Decline for the selected lead (same path as automation when Reject → Decline)";
+  })();
+
+  const testAcceptTriggerTitle = (() => {
+    if (checkedIds.size === 0) return "Select a lead with the checkbox";
+    if (checkedIds.size > 1) return "Select exactly one lead";
+    if (!singleCheckedLead) return "Lead not in current list — clear filters";
+    if (!canQueueActionsForLead(singleCheckedLead.sourceId)) return "Source is Scan only — change execution mode in Lead Management";
+    if (!deriveAcceptPathForTesting(singleCheckedLead)) return "No usable hipages action path on this lead";
+    if (hipagesActingId) return "Wait for the current action to finish";
+    if (bulkDeleting) return "Wait for delete to finish";
+    return "Queue Accept for testing (direct accept when available, otherwise derived from lead action path)";
+  })();
+
   const selectedLead = selectedLeadId ? (leads.find((l) => l.id === selectedLeadId) ?? null) : null;
 
   const totalToday = leads.length;
@@ -492,11 +751,8 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const failed = leads.filter((l) => l.status === "Failed").length;
 
   const leadsForView = useMemo(
-    () =>
-      leadsTableView === "accepted"
-        ? leads.filter((l) => l.platformAccepted === true)
-        : leads.filter((l) => l.platformAccepted !== true),
-    [leads, leadsTableView]
+    () => leads.filter((l) => l.platformAccepted !== true),
+    [leads]
   );
 
   const filtered = useMemo(() => {
@@ -528,6 +784,9 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     });
   }, [leadsForView, filterSource, filterDecision, filterStatus, filterDate, filterSearch]);
 
+  useEffect(() => {
+  }, [leads, leadsForView, filtered, filterSource, filterDecision, filterStatus, filterDate, filterSearch]);
+
   const statusOrder: Record<string, number> = { Processed: 0, Scanned: 1, Failed: 2 };
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -535,8 +794,8 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       const statusB = statusOrder[b.status] ?? 3;
       if (statusA !== statusB) return statusA - statusB;
       if (sortBy === "cost") {
-        const na = parseLeadCostToNumber(a.leadCost) ?? Infinity;
-        const nb = parseLeadCostToNumber(b.leadCost) ?? Infinity;
+        const na = a.leadCostCredits != null ? a.leadCostCredits : parseLeadCostToNumber(a.leadCost) ?? Infinity;
+        const nb = b.leadCostCredits != null ? b.leadCostCredits : parseLeadCostToNumber(b.leadCost) ?? Infinity;
         return sortDir === "asc" ? na - nb : nb - na;
       }
       const ma = getPostedTimeMs(a);
@@ -584,7 +843,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     });
   };
 
-  const uniqueSources = Array.from(new Set(leads.map((l) => l.sourceName)));
+  const uniqueSources = useMemo(() => Array.from(new Set(leads.map((l) => l.sourceName))), [leads]);
   const selectClass =
     "min-h-[44px] rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400";
 
@@ -632,6 +891,12 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <PushNotifySubscribe />
+            <Link
+              href={(base || "/control-centre") + "/leads/hipages-jobs"}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+            >
+              Hipages jobs
+            </Link>
             <Link
               href={(base || "/control-centre") + "/leads/management"}
               className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
@@ -721,44 +986,35 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
         </div>
       </div>
 
-      {/* Table view tabs: New leads | Accepted leads + Import */}
+      {/* Toolbar: credit + scan status */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-1 rounded-lg border border-neutral-200 bg-neutral-100 p-1">
-          <button
-            type="button"
-            onClick={() => setLeadsTableView("new")}
-            className={`min-h-[44px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
-              leadsTableView === "new"
-                ? "bg-white text-neutral-900 shadow-sm"
-                : "text-neutral-600 hover:text-neutral-900"
-            }`}
-          >
-            New leads
-          </button>
-          <button
-            type="button"
-            onClick={() => setLeadsTableView("accepted")}
-            className={`min-h-[44px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
-              leadsTableView === "accepted"
-                ? "bg-white text-neutral-900 shadow-sm"
-                : "text-neutral-600 hover:text-neutral-900"
-            }`}
-          >
-            Accepted leads
-          </button>
-        </div>
+        <p className="text-sm font-medium text-neutral-700">New leads inbox</p>
         <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+          <button
+            type="button"
+            disabled={autoApplyRulesLoading || autoApplyRulesSaving}
+            onClick={toggleAutoApplyRules}
+            className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+              autoApplyRulesEnabled
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50"
+            }`}
+            title="Toggle auto apply rules"
+            aria-label={`Auto apply rules ${autoApplyRulesEnabled ? "on" : "off"}`}
+          >
+            {autoApplyRulesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+            {autoApplyRulesLoading
+              ? "Auto apply rules…"
+              : autoApplyRulesEnabled
+                ? "Auto apply rules: On"
+                : "Auto apply rules: Off"}
+          </button>
           <div
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/80 px-3 py-1.5 text-xs"
             aria-hidden="true"
           >
             <span className="font-medium text-neutral-500">HiPages</span>
-            {hipagesCreditLoading ? (
-              <span className="inline-flex items-center gap-1.5 font-semibold tabular-nums text-neutral-700">
-                <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
-                …
-              </span>
-            ) : hipagesCreditError ? (
+            {hipagesCreditError ? (
               <span className="font-semibold tabular-nums text-neutral-400" title={hipagesCreditError}>
                 —
               </span>
@@ -768,38 +1024,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               <span className="font-semibold tabular-nums text-neutral-400">—</span>
             )}
           </div>
-          {leadsTableView === "accepted" && (
-            <button
-              type="button"
-              onClick={runAcceptedSync}
-              disabled={acceptedSyncInProgress}
-              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-              aria-label="Sync accepted leads with hipages now"
-            >
-              {acceptedSyncInProgress ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : null}
-              Sync now
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={runClearFreeCost}
-            disabled={clearFreeCostInProgress}
-            className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-            aria-label="Clear erroneous Free cost on Hipages leads"
-            title="Remove incorrect &quot;Free&quot; cost (e.g. from &quot;free quote&quot;) so cost shows as — until re-fetched"
-          >
-            {clearFreeCostInProgress ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : null}
-            Update lead costs
-          </button>
-          {clearFreeCostMessage && (
-            <span className="text-xs text-neutral-600" title={clearFreeCostMessage}>
-              {clearFreeCostMessage.length > 35 ? `${clearFreeCostMessage.slice(0, 35)}…` : clearFreeCostMessage}
-            </span>
-          )}
           {scanNewError && (
             <span className="text-xs text-red-600" title={scanNewError}>
               {scanNewError.length > 40 ? `${scanNewError.slice(0, 40)}…` : scanNewError}
@@ -830,14 +1054,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       {/* Leads table or empty state */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white px-6 py-16 shadow-sm">
-          {leadsTableView === "accepted" && leadsForView.length === 0 ? (
-            <>
-              <p className="text-center text-base font-medium text-neutral-900">No accepted leads yet</p>
-              <p className="mt-2 max-w-sm text-center text-sm text-neutral-600">
-                Leads you accept on the platform (e.g. hipages) will appear here and stay in this table.
-              </p>
-            </>
-          ) : leads.length === 0 ? (
+          {leads.length === 0 ? (
             <>
               <p className="text-center text-base font-medium text-neutral-900">No leads yet</p>
               <p className="mt-2 max-w-sm text-center text-sm text-neutral-600">
@@ -888,23 +1105,45 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
         <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
           {/* Bulk action bar */}
           {checkedIds.size > 0 && (
-            <div className="flex items-center justify-between border-b border-neutral-200 bg-neutral-50 px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-2.5">
               <span className="text-sm font-medium text-neutral-700">
                 {checkedIds.size} selected
               </span>
-              <button
-                type="button"
-                disabled={bulkDeleting}
-                onClick={handleBulkDelete}
-                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-              >
-                {bulkDeleting ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
-                )}
-                Delete selected
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!testAcceptTriggerEnabled}
+                  title={testAcceptTriggerTitle}
+                  onClick={() => void handleTestAutoAcceptTrigger()}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Zap className="h-3.5 w-3.5" aria-hidden />
+                  Trigger Accept
+                </button>
+                <button
+                  type="button"
+                  disabled={!testDeclineTriggerEnabled}
+                  title={testDeclineTriggerTitle}
+                  onClick={() => void handleTestAutoDeclineTrigger()}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Zap className="h-3.5 w-3.5" aria-hidden />
+                  Trigger Decline
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkDeleting}
+                  onClick={handleBulkDelete}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {bulkDeleting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Delete selected
+                </button>
+              </div>
             </div>
           )}
           {/* Mobile: card list */}
@@ -941,7 +1180,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                       {lead.sourceName} · {suburbPostcode(lead)}
                     </p>
                     <p className="mt-0.5 text-xs text-neutral-500">
-                      Score {lead.score} · {lead.leadCost ?? "—"} · {formatReceivedDate(lead)}
+                      Score {lead.score} · {formatLeadCost(lead)} · {formatReceivedDate(lead)}
                     </p>
                     {lead.reasons?.length ? (
                       <p className="mt-1 truncate text-xs text-neutral-600">{formatReasons(lead.reasons)}</p>
@@ -953,76 +1192,81 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     <span className="text-xs text-red-600">{hipagesActionError[lead.id]}</span>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
-                    {leadsTableView === "new" &&
-                      lead.sourceName?.toLowerCase().includes("hipages") &&
+                    {lead.sourceName?.toLowerCase().includes("hipages") &&
+                      canQueueActionsForLead(lead.sourceId) &&
                       (lead.hipagesActions?.accept || lead.hipagesActions?.decline || lead.hipagesActions?.waitlist) && (
                         <>
-                          {lead.hipagesActions.accept && (
-                            <button
-                              type="button"
-                              disabled={!!hipagesActingId}
-                              onClick={() => handleHipagesAction(lead, "accept", lead.hipagesActions!.accept!)}
-                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-                            >
-                              {hipagesActingId === `${lead.id}-accept` ? (
-                                <>
+                          {/* When accept label is "Join Waitlist", treat as waitlist: orange styling and send action "waitlist" so worker runs popup + Share my details. */}
+                          {lead.hipagesActions.accept && (() => {
+                            const isJoinWaitlist = /join\s*waitlist/i.test(lead.hipagesActions.acceptLabel ?? "");
+                            const action: "accept" | "waitlist" = isJoinWaitlist ? "waitlist" : "accept";
+                            const btn = getQueueActionButton(lead.id, action, isActionPendingUi(lead.id, action));
+                            const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, action)?.status === "success";
+                            const label = lead.hipagesActions.acceptLabel ?? btn.label;
+                            const actionPath = lead.hipagesActions!.accept!;
+                            const isOrange = isJoinWaitlist;
+                            return (
+                              <button
+                                type="button"
+                                disabled={btn.disabled}
+                                onClick={() => handleHipagesAction(lead, action, actionPath)}
+                                className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? (isOrange ? "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-red-300 bg-red-50 text-red-800 hover:bg-red-100") : isOrange ? "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}
+                                title={btn.title}
+                                aria-label={label}
+                              >
+                                {shouldShowActionSpinner(lead.id, action, btn.label) ? (
                                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                  Accepting…
-                                </>
-                              ) : hipagesActionResult[lead.id] === "accept" ? (
-                                <>
+                                ) : isSuccess ? (
                                   <Check className="h-4 w-4" aria-hidden />
-                                  Accepted
-                                </>
-                              ) : (
-                                "Accept"
-                              )}
-                            </button>
-                          )}
-                          {lead.hipagesActions.decline && (
-                            <button
-                              type="button"
-                              disabled={!!hipagesActingId}
-                              onClick={() => handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)}
-                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
-                            >
-                              {hipagesActingId === `${lead.id}-decline` ? (
-                                <>
+                                ) : null}
+                                {label}
+                              </button>
+                            );
+                          })()}
+                          {lead.hipagesActions.decline && (() => {
+                            const btn = getQueueActionButton(lead.id, "decline", isActionPendingUi(lead.id, "decline"));
+                            const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, "decline")?.status === "success";
+                            const label = lead.hipagesActions.declineLabel ?? btn.label;
+                            return (
+                              <button
+                                type="button"
+                                disabled={btn.disabled}
+                                onClick={() => handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)}
+                                className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? "border-red-300 bg-red-50 text-red-800 hover:bg-red-100" : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100"}`}
+                                title={btn.title}
+                                aria-label={label}
+                              >
+                                {shouldShowActionSpinner(lead.id, "decline", btn.label) ? (
                                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                  Declining…
-                                </>
-                              ) : hipagesActionResult[lead.id] === "decline" ? (
-                                <>
+                                ) : isSuccess ? (
                                   <Check className="h-4 w-4" aria-hidden />
-                                  Declined
-                                </>
-                              ) : (
-                                "Decline"
-                              )}
-                            </button>
-                          )}
-                          {lead.hipagesActions.waitlist && (
-                            <button
-                              type="button"
-                              disabled={!!hipagesActingId}
-                              onClick={() => handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)}
-                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
-                            >
-                              {hipagesActingId === `${lead.id}-waitlist` ? (
-                                <>
+                                ) : null}
+                                {label}
+                              </button>
+                            );
+                          })()}
+                          {lead.hipagesActions.waitlist && (() => {
+                            const btn = getQueueActionButton(lead.id, "waitlist", isActionPendingUi(lead.id, "waitlist"));
+                            const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, "waitlist")?.status === "success";
+                            const label = lead.hipagesActions.waitlistLabel ?? btn.label;
+                            return (
+                              <button
+                                type="button"
+                                disabled={btn.disabled}
+                                onClick={() => handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)}
+                                className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100"}`}
+                                title={btn.title}
+                                aria-label={label}
+                              >
+                                {shouldShowActionSpinner(lead.id, "waitlist", btn.label) ? (
                                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                  Adding…
-                                </>
-                              ) : hipagesActionResult[lead.id] === "waitlist" ? (
-                                <>
+                                ) : isSuccess ? (
                                   <Check className="h-4 w-4" aria-hidden />
-                                  Waitlisted
-                                </>
-                              ) : (
-                                "Waitlist"
-                              )}
-                            </button>
-                          )}
+                                ) : null}
+                                {label}
+                              </button>
+                            );
+                          })()}
                         </>
                       )}
                   <button
@@ -1077,9 +1321,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     Suburb / Postcode
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
-                    Score
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
                     <button
                       type="button"
                       onClick={handleSortCost}
@@ -1122,6 +1363,9 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     </button>
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
+                    Score
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
                     Reasons
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-right">
@@ -1145,6 +1389,11 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                       />
                     </td>
                     <td className="max-w-[220px] px-4 py-3 text-neutral-600">
+                      {lead.title?.trim() ? (
+                        <p className="mb-1 line-clamp-2 text-xs font-medium text-neutral-800" title={lead.title}>
+                          {lead.title}
+                        </p>
+                      ) : null}
                       {lead.customerName || lead.email || lead.phone ? (
                         <div className="flex flex-col gap-0.5">
                           {lead.customerName && (
@@ -1161,7 +1410,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                             </a>
                           )}
                         </div>
-                      ) : lead.sourceName?.toLowerCase().includes("hipages") && lead.sourceId ? (
+                      ) : lead.sourceName?.toLowerCase().includes("hipages") && lead.sourceId && !lead.externalUrl ? (
                         <button
                           type="button"
                           disabled={!!fetchCustomerLeadId}
@@ -1188,25 +1437,25 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     <td className="whitespace-nowrap px-4 py-3 text-neutral-600">
                       {suburbPostcode(lead)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-700">
-                      {lead.score}
-                    </td>
                     <td
                       className="whitespace-nowrap px-4 py-3 tabular-nums font-medium text-neutral-900"
                       title={
-                        lead.leadCost
+                        (lead.leadCost || lead.leadCostCredits != null)
                           ? undefined
                           : lead.sourceName?.toLowerCase().includes("hipages")
                             ? lead.platformAccepted
-                              ? "Cost not found when syncing. Run Sync now on Accepted leads to re-fetch job details."
+                              ? "Cost not found when syncing. Open Hipages jobs to re-sync job details."
                               : "Cost not found. Use Fetch on the customer cell to refresh from the job page."
                             : undefined
                       }
                     >
-                      {lead.leadCost ?? <span className="text-neutral-400">—</span>}
+                      {formatLeadCost(lead) !== "—" ? formatLeadCost(lead) : <span className="text-neutral-400">—</span>}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
                       {formatReceivedDate(lead)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-700">
+                      {lead.score}
                     </td>
                     <td className="max-w-[180px] truncate px-4 py-3 text-xs text-neutral-600">
                       {formatReasons(lead.reasons)}
@@ -1219,86 +1468,69 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                           </span>
                         )}
                         <div className="flex flex-wrap items-center justify-end gap-1">
-                          {/* Platform actions: only for new leads (hipages) with action paths */}
-                          {leadsTableView === "new" &&
-                            lead.sourceName?.toLowerCase().includes("hipages") &&
+                          {lead.sourceName?.toLowerCase().includes("hipages") &&
+                            canQueueActionsForLead(lead.sourceId) &&
                             (lead.hipagesActions?.accept || lead.hipagesActions?.decline || lead.hipagesActions?.waitlist) && (
                             <>
-                              {lead.hipagesActions.accept && (
-                                <button
-                                  type="button"
-                                  disabled={!!hipagesActingId}
-                                  onClick={() =>
-                                    handleHipagesAction(lead, "accept", lead.hipagesActions!.accept!)
-                                  }
-                                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-                                  aria-label={hipagesActionResult[lead.id] === "accept" ? "Accepted" : hipagesActingId === `${lead.id}-accept` ? "Accepting…" : "Accept"}
-                                >
-                                  {hipagesActingId === `${lead.id}-accept` ? (
-                                    <>
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                                      Accepting…
-                                    </>
-                                  ) : hipagesActionResult[lead.id] === "accept" ? (
-                                    <>
-                                      <Check className="h-3.5 w-3.5" aria-hidden />
-                                      Accepted
-                                    </>
-                                  ) : (
-                                    "Accept"
-                                  )}
-                                </button>
-                              )}
-                              {lead.hipagesActions.decline && (
-                                <button
-                                  type="button"
-                                  disabled={!!hipagesActingId}
-                                  onClick={() =>
-                                    handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)
-                                  }
-                                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
-                                  aria-label={hipagesActionResult[lead.id] === "decline" ? "Declined" : hipagesActingId === `${lead.id}-decline` ? "Declining…" : "Decline"}
-                                >
-                                  {hipagesActingId === `${lead.id}-decline` ? (
-                                    <>
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                                      Declining…
-                                    </>
-                                  ) : hipagesActionResult[lead.id] === "decline" ? (
-                                    <>
-                                      <Check className="h-3.5 w-3.5" aria-hidden />
-                                      Declined
-                                    </>
-                                  ) : (
-                                    "Decline"
-                                  )}
-                                </button>
-                              )}
-                              {lead.hipagesActions.waitlist && (
-                                <button
-                                  type="button"
-                                  disabled={!!hipagesActingId}
-                                  onClick={() =>
-                                    handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)
-                                  }
-                                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
-                                  aria-label={hipagesActionResult[lead.id] === "waitlist" ? "Added to waitlist" : hipagesActingId === `${lead.id}-waitlist` ? "Adding to waitlist…" : "Waitlist"}
-                                >
-                                  {hipagesActingId === `${lead.id}-waitlist` ? (
-                                    <>
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                                      Adding…
-                                    </>
-                                  ) : hipagesActionResult[lead.id] === "waitlist" ? (
-                                    <>
-                                      <Check className="h-3.5 w-3.5" aria-hidden />
-                                      Waitlisted
-                                    </>
-                                  ) : (
-                                    "Waitlist"
-                                  )}
-                                </button>
-                              )}
+                              {/* When accept label is "Join Waitlist", treat as waitlist: orange styling and send action "waitlist" so worker runs popup + Share my details. */}
+                              {lead.hipagesActions.accept && (() => {
+                                const isJoinWaitlist = /join\s*waitlist/i.test(lead.hipagesActions.acceptLabel ?? "");
+                                const action: "accept" | "waitlist" = isJoinWaitlist ? "waitlist" : "accept";
+                                const btn = getQueueActionButton(lead.id, action, isActionPendingUi(lead.id, action));
+                                const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, action)?.status === "success";
+                                const label = lead.hipagesActions.acceptLabel ?? btn.label;
+                                const actionPath = lead.hipagesActions!.accept!;
+                                const isOrange = isJoinWaitlist;
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={btn.disabled}
+                                    onClick={() => handleHipagesAction(lead, action, actionPath)}
+                                    className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? (isOrange ? "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-red-300 bg-red-50 text-red-800 hover:bg-red-100") : isOrange ? "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}
+                                    aria-label={label}
+                                    title={btn.title}
+                                  >
+                                    {shouldShowActionSpinner(lead.id, action, btn.label) ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : isSuccess ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+                                    {label}
+                                  </button>
+                                );
+                              })()}
+                              {lead.hipagesActions.decline && (() => {
+                                const btn = getQueueActionButton(lead.id, "decline", isActionPendingUi(lead.id, "decline"));
+                                const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, "decline")?.status === "success";
+                                const label = lead.hipagesActions.declineLabel ?? btn.label;
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={btn.disabled}
+                                    onClick={() => handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)}
+                                    className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? "border-red-300 bg-red-50 text-red-800 hover:bg-red-100" : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100"}`}
+                                    aria-label={label}
+                                    title={btn.title}
+                                  >
+                                    {shouldShowActionSpinner(lead.id, "decline", btn.label) ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : isSuccess ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+                                    {label}
+                                  </button>
+                                );
+                              })()}
+                              {lead.hipagesActions.waitlist && (() => {
+                                const btn = getQueueActionButton(lead.id, "waitlist", isActionPendingUi(lead.id, "waitlist"));
+                                const isSuccess = getActionStatus(actionStatusByLeadAndAction, lead.id, "waitlist")?.status === "success";
+                                const label = lead.hipagesActions.waitlistLabel ?? btn.label;
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={btn.disabled}
+                                    onClick={() => handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)}
+                                    className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium disabled:opacity-50 ${btn.label.startsWith("Failed") ? "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100" : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100"}`}
+                                    aria-label={label}
+                                    title={btn.title}
+                                  >
+                                    {shouldShowActionSpinner(lead.id, "waitlist", btn.label) ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : isSuccess ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+                                    {label}
+                                  </button>
+                                );
+                              })()}
                             </>
                           )}
                         <button

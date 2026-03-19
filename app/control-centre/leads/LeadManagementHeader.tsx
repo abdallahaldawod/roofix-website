@@ -9,6 +9,8 @@ type LeadManagementHeaderProps = {
   onRunTest: () => void;
   automationOn: boolean;
   onAutomationChange: (on: boolean) => void;
+  /** Disable switch while settings load or save (same flag as Leads "Auto apply rules"). */
+  automationDisabled?: boolean;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   runningTest?: boolean;
@@ -19,6 +21,7 @@ export function LeadManagementHeader({
   onRunTest,
   automationOn,
   onAutomationChange,
+  automationDisabled = false,
   mode,
   onModeChange,
   runningTest = false,
@@ -57,8 +60,9 @@ export function LeadManagementHeader({
               type="button"
               role="switch"
               aria-checked={automationOn}
+              disabled={automationDisabled}
               onClick={() => onAutomationChange(!automationOn)}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 ${
+              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                 automationOn ? "border-accent bg-accent" : "border-neutral-300 bg-neutral-200"
               }`}
             >

@@ -11,8 +11,13 @@
  *   Description:  <p> inside the section whose heading includes "Job Description"
  */
 
-import { mkdirSync } from "fs";
-import { resolve } from "path";
+import { mkdirSync, readFileSync } from "fs";
+import { join, resolve } from "path";
+
+// Load cost-evaluate scripts from disk so no bundler/tsx can inject __name into browser eval (ReferenceError in Playwright).
+const _adaptersDir = join(process.cwd(), "lib", "leads", "scanning", "adapters");
+const COST_EVALUATE_MAIN = readFileSync(join(_adaptersDir, "hipages-cost-evaluate.js"), "utf8");
+const COST_EVALUATE_RETRY = readFileSync(join(_adaptersDir, "hipages-cost-evaluate-retry.js"), "utf8");
 import type { Locator } from "playwright";
 import type {
   BrowserScanContext,
@@ -23,6 +28,16 @@ import type {
 
 const HIPAGES_BASE_URL = "https://www.hipages.com.au";
 const HIPAGES_LEADS_LIST_PATH = "/tradie/jobs";
+
+/** Parse credits value from leadCost string (e.g. "48 credits" → 48, "62 credits" → 62). Returns null if missing or invalid. */
+function parseLeadCostCredits(leadCost: string | null | undefined): number | null {
+  if (leadCost == null || typeof leadCost !== "string") return null;
+  const t = leadCost.trim();
+  const m = /^(\d+(?:\.\d+)?)\s*credits?$/i.exec(t) ?? /\s+(\d+(?:\.\d+)?)\s*credits?/i.exec(t);
+  if (!m?.[1]) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
 
 const LEAD_CARD_SELECTOR = 'article[data-tracking-label="Lead Card"]';
 
@@ -120,7 +135,9 @@ export class HipagesAdapter implements SourceAdapter {
         }
       }
 
-      console.log(`[hipages] Extracted ${leads.length} leads, skipped ${skipped}`, skipReasons);
+      if (process.env.HIPAGES_ADAPTER_LOGS === "1") {
+        console.log(`[hipages] Extracted ${leads.length} leads, skipped ${skipped}`, skipReasons);
+      }
       return leads;
     } catch (e) {
       takeFailureScreenshot(context.page, "extract");
@@ -206,137 +223,73 @@ export class HipagesAdapter implements SourceAdapter {
     }
 
     // ── lead cost (credit cost shown near accept button) ─────────────────────
-    const costResult = await card
-      .evaluate((el) => {
-        // Only treat "Free" as cost when it appears in the cost area (footer/section), not in description text (e.g. "free quote").
-        // hipages shows the cost as a dollar amount or "N credits" near the accept/decline footer.
-        const costOnly = (text: string): string | null => {
-          const t = text.trim();
-          if (/^free$/i.test(t)) return "Free";
-          if (/^\$\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?\s+credits?$/i.test(t)) return t;
-          const withSuffix = /^(\$\d+(?:\.\d+)?|\d+(?:\.\d+)?\s+credits?)\s*-\s*./i.exec(t);
-          if (withSuffix) return withSuffix[1].trim();
-          return null;
-        };
-        // Cost often lives in article > section:nth-child(13) > div > span (footer/cost area).
-        const sections = Array.from(el.querySelectorAll(":scope > section"));
-        const costSection = sections[12];
-        if (costSection) {
-          const sectionText = (costSection as HTMLElement).innerText?.trim() ?? costSection.textContent?.trim() ?? "";
-          // If it has "free", only display "Free" (don't show strikethrough credits).
-          if (/\bfree\b/i.test(sectionText)) return { leadCost: "Free", snippet: "" };
-          const cost = costOnly(sectionText);
-          if (cost) return { leadCost: cost, snippet: "" };
-          const span = costSection.querySelector("div span");
-          const spanText = span ? (span as HTMLElement).innerText?.trim() ?? span.textContent?.trim() ?? "" : "";
-          if (spanText) {
-            if (/\bfree\b/i.test(spanText)) return { leadCost: "Free", snippet: "" };
-            const costFromSpan = costOnly(spanText);
-            if (costFromSpan) return { leadCost: costFromSpan, snippet: "" };
-            const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(spanText);
-            if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
-            const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(spanText);
-            if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
+    // Target the known structure: <div class="text-center text-content-muted text-body-sm"><span>62 credits</span></div>
+    const creditsFromDom = await card
+      .evaluate((el: Element) => {
+        const creditsRegex = /(\d+)\s+credits/i;
+        const divs = el.querySelectorAll('div[class*="text-center"]');
+        for (let i = 0; i < divs.length; i++) {
+          const div = divs[i];
+          if (!div || !div.className || typeof div.className !== "string") continue;
+          if (!div.className.includes("text-content-muted") && !div.className.includes("text-body-sm")) continue;
+          const span = div.querySelector("span");
+          const text = (span?.textContent ?? div.textContent ?? "").trim();
+          const m = creditsRegex.exec(text);
+          if (m?.[1]) {
+            const n = parseInt(m[1], 10);
+            if (Number.isFinite(n)) return { credits: n, leadCost: n + " credits" };
           }
         }
-        const allEls = Array.from(el.querySelectorAll("*"));
-        for (const node of allEls) {
-          if (node.children.length > 0) continue;
-          const text = (node as HTMLElement).innerText?.trim() ?? node.textContent?.trim() ?? "";
-          const cost = costOnly(text);
-          if (cost) return { leadCost: cost, snippet: "" };
-        }
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-        let node = walker.nextNode();
-        while (node) {
-          const text = node.textContent?.trim() ?? "";
-          const cost = costOnly(text);
-          if (cost) return { leadCost: cost, snippet: "" };
-          if (/\$\d+(\.\d+)?/.test(text) && text.length < 20) return { leadCost: text.trim(), snippet: "" };
-          node = walker.nextNode();
-        }
-        // Fallback: cost may be split across elements. Search full card text for $ or credits only (don't use "free" from full card — could be "free quote").
-        const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-        const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
-        if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
-        const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);
-        if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
-        // No cost found: return snippet of card text for debugging (last 400 chars often contain footer/cost area).
-        const snippet = fullText.length > 400 ? fullText.slice(-400) : fullText;
-        return { leadCost: null, snippet: snippet.replace(/\s+/g, " ").trim() };
+        return { credits: null, leadCost: null };
       })
-      .catch(() => ({ leadCost: null, snippet: "" }));
+      .catch(() => ({ credits: null, leadCost: null }));
 
-    let leadCost =
-      costResult && typeof costResult === "object" && "leadCost" in costResult
-        ? costResult.leadCost
-        : null;
-    let snippet =
-      costResult && typeof costResult === "object" && "snippet" in costResult
-        ? String(costResult.snippet ?? "")
-        : "";
-    // When card had no text (empty snippet), SPA may not have painted yet. Retry once after a short delay.
-    let retryUsed = false;
-    let retryRecovered = false;
-    if (leadCost == null && snippet === "") {
-      retryUsed = true;
-      await new Promise((r) => setTimeout(r, 800));
-      const retryResult = await card
-        .evaluate((el) => {
-          const costOnly = (text: string): string | null => {
-            const t = text.trim();
-            if (/^free$/i.test(t)) return "Free";
-            if (/^\$\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?\s+credits?$/i.test(t)) return t;
-            const withSuffix = /^(\$\d+(?:\.\d+)?|\d+(?:\.\d+)?\s+credits?)\s*-\s*./i.exec(t);
-            if (withSuffix) return withSuffix[1].trim();
-            return null;
-          };
-          const sections = Array.from(el.querySelectorAll(":scope > section"));
-          const costSection = sections[12];
-          if (costSection) {
-            const sectionText = (costSection as HTMLElement).innerText?.trim() ?? costSection.textContent?.trim() ?? "";
-            if (/\bfree\b/i.test(sectionText)) return { leadCost: "Free", snippet: "" };
-            const cost = costOnly(sectionText);
-            if (cost) return { leadCost: cost, snippet: "" };
-            const span = costSection.querySelector("div span");
-            const spanText = span ? (span as HTMLElement).innerText?.trim() ?? span.textContent?.trim() ?? "" : "";
-            if (spanText && /\bfree\b/i.test(spanText)) return { leadCost: "Free", snippet: "" };
-            if (spanText) {
-              const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(spanText);
-              if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
-              const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(spanText);
-              if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
-            }
-          }
-          const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-          const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
-          if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
-          const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);
-          if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
-          return { leadCost: null, snippet: fullText.slice(-400).replace(/\s+/g, " ").trim() };
-        })
-        .catch(() => ({ leadCost: null, snippet: "" }));
-      if (retryResult && typeof retryResult === "object" && retryResult.leadCost) {
-        leadCost = retryResult.leadCost;
-        snippet = String(retryResult.snippet ?? "");
-        retryRecovered = true;
-      }
+    let leadCost: string | null = null;
+    let leadCostCredits: number | null = null;
+    if (creditsFromDom?.credits != null && creditsFromDom?.leadCost != null) {
+      leadCost = creditsFromDom.leadCost;
+      leadCostCredits = creditsFromDom.credits;
     }
 
-    // #region agent log
-    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" },
-      body: JSON.stringify({
-        sessionId: "7a5692",
-        location: "hipages-adapter.ts:extractOneCard:leadCost",
-        message: "scanner leadCost extracted",
-        data: { index, leadCost: leadCost ?? null, hasCost: !!leadCost, snippetWhenNull: leadCost ? undefined : snippet.slice(0, 250), retryUsed, retryRecovered },
-        timestamp: Date.now(),
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
+    // Fallback: generic cost-evaluate script if targeted extraction found nothing
+    if (leadCost == null) {
+      const costResult = await card
+        .evaluate(
+          (el: Element, script: string) => {
+            const fn = new Function("el", "return (" + script + ")(el)");
+            return fn(el);
+          },
+          COST_EVALUATE_MAIN
+        )
+        .catch(() => ({ leadCost: null, snippet: "" }));
+
+      leadCost =
+        costResult && typeof costResult === "object" && "leadCost" in costResult
+          ? costResult.leadCost
+          : null;
+      const snippet =
+        costResult && typeof costResult === "object" && "snippet" in costResult
+          ? String(costResult.snippet ?? "")
+          : "";
+      if (leadCost == null && snippet === "") {
+        await new Promise((r) => setTimeout(r, 800));
+        const retryResult = await card
+          .evaluate(
+            (el: Element, script: string) => {
+              const fn = new Function("el", "return (" + script + ")(el)");
+              return fn(el);
+            },
+            COST_EVALUATE_RETRY
+          )
+          .catch(() => ({ leadCost: null, snippet: "" }));
+        if (retryResult && typeof retryResult === "object" && retryResult.leadCost) {
+          leadCost = retryResult.leadCost;
+        }
+      }
+      if (leadCostCredits == null) {
+        leadCostCredits = parseLeadCostCredits(leadCost);
+      }
+    }
 
     // ── job description from "Job Description" section ────────────────────────
     const description = await card
@@ -362,8 +315,9 @@ export class HipagesAdapter implements SourceAdapter {
       .catch(() => "");
 
     // ── available actions (accept / decline / waitlist / join-waitlist) ─────────
-    // Collect all action hrefs present on the card so the UI can show the right buttons.
-    // Also capture the visible button label (e.g. "Join Waitlist") so the UI matches hipages exactly.
+    // Normalization: we scan all <a> in the card; path from href (pathname); label from innerText/textContent.
+    // Path contains /accept → accept OR waitlist (if label matches "Join Waitlist", so executor runs popup + Share my details).
+    // Path contains /decline → decline; /waitlist → waitlist. Labels stored for UI. See docs/hipages-action-system.md.
     const hipagesActions = await card
       .evaluate((el) => {
         const result: {
@@ -388,8 +342,14 @@ export class HipagesAdapter implements SourceAdapter {
           const label = a.innerText?.trim() ?? a.textContent?.trim() ?? "";
 
           if (path.includes("/accept")) {
-            result.accept = path;
-            result.acceptLabel = label || "Accept";
+            // Normalize "Join Waitlist" as waitlist so executor runs popup + Share my details flow.
+            if (/join\s*waitlist/i.test(label || "")) {
+              result.waitlist = path;
+              result.waitlistLabel = label?.trim() || "Join Waitlist";
+            } else {
+              result.accept = path;
+              result.acceptLabel = label || "Accept";
+            }
           } else if (path.includes("/decline")) {
             result.decline = path;
             result.declineLabel = label || "Decline";
@@ -496,6 +456,10 @@ export class HipagesAdapter implements SourceAdapter {
     // Use serviceType as title (most meaningful); fall back to customerName
     const title = serviceType || customerName || "Lead";
 
+    if (process.env.HIPAGES_ADAPTER_LOGS === "1" && index < 3) {
+      console.log("[hipages] lead cost extraction", { index, externalId, leadCostCredits: leadCostCredits ?? null });
+    }
+
     return {
       externalId,
       title,
@@ -509,6 +473,7 @@ export class HipagesAdapter implements SourceAdapter {
         locationText,
         serviceType,
         leadCost: leadCost ?? null,
+        leadCostCredits: leadCostCredits ?? null,
         hipagesActions: Object.keys(hipagesActions).length > 0 ? hipagesActions : null,
         attachments: attachments.length > 0 ? attachments : null,
       },

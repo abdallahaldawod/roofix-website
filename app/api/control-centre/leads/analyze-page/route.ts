@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { chromium } from "playwright";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
-import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
+import { resolveLeadsStorageStateAbsolute } from "@/lib/leads/connection/session-persistence";
 import { analyzePageDom } from "@/lib/leads/scanning/page-analyzer";
 import { extractLeadsFromPage } from "@/lib/leads/scanning/selector-extractor";
 
@@ -76,10 +76,10 @@ export async function POST(request: Request) {
 
   let absolutePath: string;
   try {
-    absolutePath = resolveStorageStatePath(storageStatePath);
+    absolutePath = resolveLeadsStorageStateAbsolute(source);
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Invalid session path." },
+      { ok: false, error: "Invalid session path or no leads session file." },
       { status: 400 }
     );
   }

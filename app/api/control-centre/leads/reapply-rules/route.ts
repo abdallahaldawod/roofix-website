@@ -7,6 +7,8 @@ import {
   updateActivityRuleResultAdmin,
 } from "@/lib/leads/activity-admin";
 import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
+import { createActionRequest } from "@/lib/leads/action-queue-admin";
+import { runActionQueueCycle } from "@/lib/leads/scanning/action-queue-worker";
 import type { LeadRuleSet, TriggerPlatformAction } from "@/lib/leads/types";
 
 /**
@@ -91,16 +93,36 @@ export async function POST(request: Request) {
         const decisionKey = result.decision.toLowerCase() as "accept" | "review" | "reject";
         const triggerAction = ruleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
         const hipagesActions = data.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
-        const actionPath = triggerAction && hipagesActions?.[triggerAction];
+        const actionPath = triggerAction && (hipagesActions?.[triggerAction] ?? (triggerAction === "accept" ? hipagesActions?.waitlist : undefined));
+        const effectiveAction: TriggerPlatformAction = (triggerAction === "accept" && actionPath === hipagesActions?.waitlist) ? "waitlist" : triggerAction!;
         if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
           try {
-            const { performHipagesAction } = await import("@/lib/leads/hipages-action");
-            const actionResult = await performHipagesAction({
-              sourceId: source.id,
-              actionPath: actionPath.trim(),
-              action: triggerAction,
-              leadId: activityId,
-            });
+            let actionResult: { ok: boolean; error?: string; step?: string };
+            if (effectiveAction === "accept") {
+              const externalIdMatch = actionPath.trim().match(/^\/leads\/([^/]+)\//);
+              const queueId = await createActionRequest({
+                leadId: activityId,
+                sourceId: source.id,
+                action: "accept",
+                requestedBy: "system:rule-trigger",
+                ...(externalIdMatch?.[1] ? { externalId: externalIdMatch[1] } : {}),
+                actionPath: actionPath.trim(),
+              });
+              if (!queueId) {
+                actionResult = { ok: false, error: "Could not queue accept action" };
+              } else {
+                void runActionQueueCycle().catch(() => {});
+                actionResult = { ok: true };
+              }
+            } else {
+              const { performHipagesAction } = await import("@/lib/leads/hipages-action");
+              actionResult = await performHipagesAction({
+                sourceId: source.id,
+                actionPath: actionPath.trim(),
+                action: effectiveAction,
+                leadId: activityId,
+              });
+            }
             if (!actionResult.ok) {
               errors.push(
                 `Activity ${activityId} (${triggerAction}): ${actionResult.error}${actionResult.step ? ` [${actionResult.step}]` : ""}`

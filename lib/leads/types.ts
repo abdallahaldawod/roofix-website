@@ -19,6 +19,9 @@ export const INTERNAL_SCAN_METHOD = "internal";
 /** Scan method for external sources (read-only browser ingestion). */
 export const EXTERNAL_SCAN_METHOD = "Scrape";
 
+/** Controls whether the dashboard can queue actions and whether the local worker may execute them. */
+export type ExecutionMode = "scan_only" | "queue_only" | "local_execute";
+
 export type LeadSourceStatus = "Active" | "Paused" | "Error";
 export type LeadSourceMode = "Manual" | "Dry Run" | "Live";
 
@@ -123,6 +126,8 @@ export type LeadSource = {
   lastScanDurationMs?: number | null;
   /** When true, capture extra extraction diagnostics (e.g. first-card snippet) for debugging. */
   extractionDebug?: boolean;
+  /** scan_only: no queueing or execution. queue_only: dashboard can queue, worker does not execute. local_execute: queue and worker executes. */
+  executionMode?: ExecutionMode;
 };
 
 export type LeadSourceCreate = {
@@ -141,6 +146,7 @@ export type LeadSourceCreate = {
   authStatus?: string;
   extractionConfig?: SourceExtractionConfig;
   extractionDebug?: boolean;
+  executionMode?: ExecutionMode;
 };
 
 export type LeadSourceUpdate = Partial<LeadSourceCreate>;
@@ -260,8 +266,10 @@ export type LeadActivity = {
   postedAtIso?: string;
   /** Raw visible text of the time element from the platform (e.g. "Today, 6:17am") — used for accurate display. */
   postedAtText?: string;
-  /** Cost to accept the lead on the external platform (e.g. "$12.50" or "3 credits" from hipages). */
-  leadCost?: string;
+  /** Cost to accept the lead on the external platform (e.g. "$12.50" or "48 credits" from hipages). Null when missing. */
+  leadCost?: string | null;
+  /** Parsed credits value when cost is in credits (e.g. 48 from "48 credits"). Null when missing. */
+  leadCostCredits?: number | null;
   /** Action paths available on the hipages lead card (e.g. /leads/{id}/accept). */
   hipagesActions?: {
     accept?: string;
@@ -277,6 +285,16 @@ export type LeadActivity = {
   platformAccepted?: boolean;
   /** Hipages job number (e.g. "103") so we can open jobs/{jobId}/customer-enquiry to fetch/refresh lead info. */
   jobId?: string;
+  /** True when this lead's job was seen on the Hipages jobs list (source of truth for Accepted tab). */
+  acceptedConfirmedFromJobsPage?: boolean;
+  /** When confirmation was first set from the jobs list. */
+  acceptedConfirmedAt?: FsTimestamp;
+  /** Last time this job was seen on the Hipages jobs list. */
+  jobsPageLastSeenAt?: FsTimestamp;
+  /** Client-only: link to open the job on Hipages (hipages_jobs mirror rows). */
+  externalUrl?: string;
+  /** Client-only: Hipages jobs list — Create Quote visible on platform. */
+  canCreateQuote?: boolean;
 };
 
 export type LeadActivityCreate = Omit<LeadActivity, "id">;
@@ -313,28 +331,6 @@ export type ScannedLeadRaw = {
 
 /** Payload to create a scanned lead raw doc; id and scannedAt set by server. */
 export type ScannedLeadRawCreate = Omit<ScannedLeadRaw, "id" | "scannedAt">;
-
-// ─── Scan runs (collection: scan_runs) ────────────────────────────────────────
-
-export type ScanRunStatus = "success" | "failed" | "needs_reconnect";
-
-export type ScanRun = {
-  id: string;
-  sourceId: string;
-  startedAt: FsTimestamp;
-  finishedAt: FsTimestamp;
-  status: ScanRunStatus;
-  extracted?: number;
-  duplicate?: number;
-  imported?: number;
-  failedExtraction?: number;
-  failedImport?: number;
-  /** Truncated error message for failed runs. */
-  errorMessage?: string;
-  debug?: LastScanDebug;
-};
-
-export type ScanRunCreate = Omit<ScanRun, "id">;
 
 // ─── Lead Settings (document: lead_settings/global) ───────────────────────────
 

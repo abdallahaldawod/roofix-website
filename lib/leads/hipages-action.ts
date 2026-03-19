@@ -5,7 +5,7 @@
 
 import { chromium } from "playwright";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
-import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
+import { resolveLeadsStorageStateAbsolute } from "@/lib/leads/connection/session-persistence";
 import { updateActivityFieldsAdmin, updateActivityAdmin } from "@/lib/leads/activity-admin";
 
 const HIPAGES_BASE = "https://www.hipages.com.au";
@@ -25,7 +25,9 @@ export type PerformHipagesActionResult =
 
 /**
  * Loads the leads list, clicks the action link, and confirms the dialog/form.
- * Updates activity platformAccepted when action is "accept" and leadId is provided.
+ * Two branches: (1) action === "waitlist" → wait for popup, then click "Share my details". (2) accept/decline →
+ * if navigated to action page, submit form or fallback buttons; else wait for dialog and click confirm.
+ * On success with leadId: sets platformAccepted for "accept", and clears hipagesActions (buttons disappear). See docs/hipages-action-system.md.
  */
 export async function performHipagesAction(
   params: PerformHipagesActionParams
@@ -47,9 +49,9 @@ export async function performHipagesAction(
 
   let absolutePath: string;
   try {
-    absolutePath = resolveStorageStatePath(source.storageStatePath);
-  } catch {
-    return { ok: false, error: "Invalid session path" };
+    absolutePath = resolveLeadsStorageStateAbsolute(source);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Invalid session path" };
   }
 
   const leadsListUrl = source.leadsUrl?.trim() ?? `${HIPAGES_BASE}/leads`;
@@ -100,78 +102,122 @@ export async function performHipagesAction(
 
     await page.waitForTimeout(2_000);
 
-    const currentUrl = page.url();
-    const navigatedToActionPage = currentUrl.includes(actionPathBase) || currentUrl.includes(`/${action}`);
-
     let dialogClosed = false;
     let confirmed = false;
 
-    if (navigatedToActionPage) {
-      step = "confirm_on_page";
-      // #region agent log
-      fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:confirm_on_page entry", message: "confirm_on_page branch", data: { currentUrl, formSelector, actionPathBase, navigatedToActionPage }, timestamp: Date.now(), hypothesisId: "H4" }) }).catch(() => {});
-      // #endregion
-      try {
-        const form = page.locator(formSelector).first();
-        await form.waitFor({ state: "visible", timeout: 8_000 });
-        // #region agent log
-        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:form visible", message: "form found", data: { formSelector }, timestamp: Date.now(), hypothesisId: "H1" }) }).catch(() => {});
-        // #endregion
-        const submitBtn = form.locator('button[type="submit"]').first();
-        if (await submitBtn.isVisible().catch(() => false)) {
-          await submitBtn.click({ force: true });
-          confirmed = true;
-        } else {
-          await form.evaluate((el) => (el as HTMLFormElement).requestSubmit());
-          confirmed = true;
-        }
-      } catch (formErr) {
-        const formErrMsg = formErr instanceof Error ? formErr.message : String(formErr);
-        const diag = await page.evaluate((sel: string) => {
-          const forms = document.querySelectorAll(sel);
-          const allForms = document.querySelectorAll("form");
-          const buttons = Array.from(document.querySelectorAll("button, input[type=submit]")).slice(0, 10).map((el) => (el as HTMLElement).innerText?.trim() || (el as HTMLInputElement).value || el.getAttribute("aria-label") || "");
-          return { formCount: forms.length, allFormCount: allForms.length, firstFormAction: allForms[0]?.getAttribute("action") ?? null, buttonTexts: buttons };
-        }, formSelector).catch(() => ({ formCount: -1, allFormCount: -1, firstFormAction: null, buttonTexts: [] as string[] }));
-        // #region agent log
-        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:form catch", message: "form wait or submit failed", data: { formErrMsg, formSelector, ...diag }, timestamp: Date.now(), hypothesisId: "H1-H2-H5" }) }).catch(() => {});
-        // #endregion
-        for (const btnText of ["Share my details", "Confirm", "Accept", "Yes", "Submit"]) {
-          try {
-            const btn = page.getByRole("button", { name: new RegExp(btnText, "i") }).first();
-            await btn.waitFor({ state: "visible", timeout: 2_000 });
-            await btn.click({ force: true });
-            confirmed = true;
-            // #region agent log
-            fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:fallback button", message: "fallback button clicked", data: { btnText }, timestamp: Date.now(), hypothesisId: "H3" }) }).catch(() => {});
-            // #endregion
-            break;
-          } catch {
-            // #region agent log
-            fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:fallback button try", message: "button not found", data: { btnText }, timestamp: Date.now(), hypothesisId: "H3" }) }).catch(() => {});
-            // #endregion
-            continue;
-          }
+    if (action === "waitlist") {
+      // Join Waitlist: popup with "Share my details" confirmation
+      console.log("[hipages-action] waitlist_action_started");
+      step = "waitlist_popup";
+      const waitlistDialogLocators = [
+        page.getByRole("dialog"),
+        page.getByRole("alertdialog"),
+        page
+          .locator(
+            '[class*="modal"][class*="open"], [class*="Modal"], [class*="Dialog"], [data-state="open"]'
+          )
+          .filter({ has: page.locator("form, button") }),
+      ];
+      let waitlistDialog: Awaited<ReturnType<typeof page.getByRole>> | ReturnType<typeof page.locator> | null = null;
+      for (const loc of waitlistDialogLocators) {
+        try {
+          await loc.first().waitFor({ state: "visible", timeout: 8_000 });
+          waitlistDialog = loc.first();
+          break;
+        } catch {
+          continue;
         }
       }
-      if (!confirmed) {
-        // #region agent log
-        const finalDiag = await page.evaluate((sel: string) => {
-          const forms = document.querySelectorAll(sel);
-          const allForms = document.querySelectorAll("form");
-          const buttons = Array.from(document.querySelectorAll("button, input[type=submit]")).slice(0, 12).map((el) => (el as HTMLElement).innerText?.trim() || (el as HTMLInputElement).value || el.getAttribute("aria-label") || el.tagName);
-          return { formCount: forms.length, allFormCount: allForms.length, formActions: Array.from(allForms).map((f) => f.getAttribute("action")), buttonTexts: buttons };
-        }, formSelector).catch(() => ({}));
-        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:confirm_on_page error return", message: "confirm failed summary", data: { currentUrl, formSelector, ...finalDiag }, timestamp: Date.now(), hypothesisId: "all" }) }).catch(() => {});
-        // #endregion
+      if (!waitlistDialog) {
+        console.log("[hipages-action] waitlist_action_failed", { step: "waitlist_popup_not_found" });
         await browser.close();
         return {
           ok: false,
-          error: "Could not find the confirm form or button on the action page.",
-          step: "confirm_on_page",
+          error: "Join Waitlist popup did not appear after clicking the link.",
+          step: "waitlist_popup_not_found",
         };
       }
+      console.log("[hipages-action] waitlist_popup_opened");
+      step = "share_details_button";
+      const shareDetailsLocators = [
+        page.locator('button[data-tracking-label="Share my details"]'),
+        page.getByRole("button", { name: /share my details/i }),
+        page.locator('button:has-text("Share my details")'),
+      ];
+      let shareClicked = false;
+      for (const loc of shareDetailsLocators) {
+        try {
+          const btn = loc.first();
+          await btn.waitFor({ state: "visible", timeout: 3_000 });
+          await btn.click({ force: true });
+          shareClicked = true;
+          console.log("[hipages-action] waitlist_share_details_clicked");
+          break;
+        } catch {
+          continue;
+        }
+      }
+      if (!shareClicked) {
+        console.log("[hipages-action] waitlist_action_failed", { step: "share_details_button_not_found" });
+        await browser.close();
+        return {
+          ok: false,
+          error: "Share my details button not found in the popup.",
+          step: "share_details_button_not_found",
+        };
+      }
+      try {
+        await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 20_000 });
+        dialogClosed = true;
+      } catch {
+        try {
+          await waitlistDialog.waitFor({ state: "hidden", timeout: 15_000 });
+          dialogClosed = true;
+        } catch {
+          /* timeout; confirmed still true below */
+        }
+      }
+      confirmed = true;
+      console.log("[hipages-action] waitlist_action_success");
     } else {
+      const currentUrl = page.url();
+      const navigatedToActionPage = currentUrl.includes(actionPathBase) || currentUrl.includes(`/${action}`);
+
+      if (navigatedToActionPage) {
+        step = "confirm_on_page";
+        try {
+          const form = page.locator(formSelector).first();
+          await form.waitFor({ state: "visible", timeout: 8_000 });
+          const submitBtn = form.locator('button[type="submit"]').first();
+          if (await submitBtn.isVisible().catch(() => false)) {
+            await submitBtn.click({ force: true });
+            confirmed = true;
+          } else {
+            await form.evaluate((el) => (el as HTMLFormElement).requestSubmit());
+            confirmed = true;
+          }
+        } catch {
+          for (const btnText of ["Share my details", "Confirm", "Accept", "Yes", "Submit"]) {
+            try {
+              const btn = page.getByRole("button", { name: new RegExp(btnText, "i") }).first();
+              await btn.waitFor({ state: "visible", timeout: 2_000 });
+              await btn.click({ force: true });
+              confirmed = true;
+              break;
+            } catch {
+              continue;
+            }
+          }
+        }
+        if (!confirmed) {
+          await browser.close();
+          return {
+            ok: false,
+            error: "Could not find the confirm form or button on the action page.",
+            step: "confirm_on_page",
+          };
+        }
+      } else {
       step = "wait_for_dialog";
       const dialogLocators = [
         page.getByRole("dialog"),
@@ -249,6 +295,7 @@ export async function performHipagesAction(
         }
       }
     }
+    }
 
     await page.waitForLoadState("load", { timeout: 5_000 }).catch(() => {});
     await page.waitForTimeout(1_000);
@@ -276,6 +323,12 @@ export async function performHipagesAction(
       /* ignore */
     }
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg, step: step || "unknown" };
+    const stepOut = step || "unknown";
+    const isBrowserUnavailable =
+      /browserType\.launch|Target page, context or browser has been closed|Browser closed|Failed to launch|playwright|chromium|chrome-headless-shell/i.test(msg);
+    const friendlyError = isBrowserUnavailable
+      ? "Accept/Decline isn’t available in this environment (browser can’t run here). Use the Control Centre from a machine where it’s installed locally, or perform the action on hipages.com.au directly."
+      : msg;
+    return { ok: false, error: friendlyError, step: stepOut };
   }
 }

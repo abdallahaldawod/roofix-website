@@ -12,9 +12,11 @@
     "lint": "eslint",
     "deploy:storage": "npx firebase-tools deploy --only storage",
     "deploy:rules": "npx firebase-tools deploy --only firestore,storage",
+    "deploy:firestore-indexes": "npx firebase-tools deploy --only firestore:indexes",
     "lead-scan": "tsx scripts/run-lead-scan.ts",
     "bootstrap-hipages-auth": "tsx scripts/bootstrap-hipages-auth.ts",
-    "scanner-worker": "tsx scripts/scanner-worker.ts"
+    "scanner-worker": "tsx scripts/scanner-worker.ts",
+    "scanner-jobs-worker": "tsx scripts/scanner-jobs-worker.ts"
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.1",
@@ -36,6 +38,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "png-to-ico": "^2.1.1",

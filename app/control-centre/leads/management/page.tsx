@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { LeadManagementHeader } from "../LeadManagementHeader";
 import { LeadManagementTabs, type LeadTab } from "../LeadManagementTabs";
 import { SourcesTab } from "../SourcesTab";
@@ -14,15 +14,47 @@ import { getRuleSets } from "@/lib/leads/rule-sets";
 import { runMockTestScan } from "@/lib/leads/test-scan";
 import type { LeadSource } from "@/lib/leads/types";
 import { useControlCentreBase } from "../../use-base-path";
+import { subscribeToSettings, saveSettings, DEFAULT_SETTINGS } from "@/lib/leads/settings";
 
 export default function LeadManagementPage() {
   const base = useControlCentreBase();
   const [activeTab, setActiveTab] = useState<LeadTab>("sources");
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [automationOn, setAutomationOn] = useState(true);
+  const [automationOn, setAutomationOn] = useState(DEFAULT_SETTINGS.automationEnabled);
+  const [automationSettingsReady, setAutomationSettingsReady] = useState(false);
+  const [automationSaving, setAutomationSaving] = useState(false);
   const [mode, setMode] = useState<"Dry Run" | "Live">("Live");
   const [activityRefreshKey, setActivityRefreshKey] = useState(0);
   const [runningTest, setRunningTest] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeToSettings(
+      (settings) => {
+        setAutomationOn(settings.automationEnabled);
+        setAutomationSettingsReady(true);
+      },
+      () => setAutomationSettingsReady(true)
+    );
+    return unsub;
+  }, []);
+
+  const handleAutomationChange = useCallback(
+    async (on: boolean) => {
+      if (automationSaving || !automationSettingsReady) return;
+      setAutomationSaving(true);
+      const previous = automationOn;
+      setAutomationOn(on);
+      try {
+        await saveSettings({ automationEnabled: on });
+      } catch {
+        setAutomationOn(previous);
+        alert("Could not save automation. Check your connection and try again.");
+      } finally {
+        setAutomationSaving(false);
+      }
+    },
+    [automationSaving, automationSettingsReady, automationOn]
+  );
 
   const handleRunTest = useCallback(async () => {
     if (runningTest) return;
@@ -90,7 +122,8 @@ export default function LeadManagementPage() {
         }}
         onRunTest={handleRunTest}
         automationOn={automationOn}
-        onAutomationChange={setAutomationOn}
+        onAutomationChange={handleAutomationChange}
+        automationDisabled={!automationSettingsReady || automationSaving}
         mode={mode}
         onModeChange={setMode}
         runningTest={runningTest}

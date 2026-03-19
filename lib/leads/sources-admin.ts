@@ -5,12 +5,18 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebase/admin";
-import type { LeadSource, SourceExtractionConfig, LastScanDebug } from "./types";
+import type { LeadSource, SourceExtractionConfig, LastScanDebug, ExecutionMode } from "./types";
 import {
   INTERNAL_SCAN_METHOD,
   ROOFIX_WEBSITE_PLATFORM as ROOFIX_PLATFORM,
   normalizeAuthStatus,
 } from "./types";
+
+const EXECUTION_MODES: ExecutionMode[] = ["scan_only", "queue_only", "local_execute"];
+function normalizeExecutionMode(v: string | undefined): ExecutionMode {
+  if (v && EXECUTION_MODES.includes(v as ExecutionMode)) return v as ExecutionMode;
+  return "local_execute";
+}
 import { toFsTimestamp } from "./admin-utils";
 
 const COLLECTION = "lead_sources";
@@ -56,6 +62,7 @@ function toLeadSource(id: string, d: DocData): LeadSource {
     lastScanDebug: (d.lastScanDebug as LastScanDebug | undefined) ?? undefined,
     lastScanDurationMs: (d.lastScanDurationMs as number | undefined) ?? undefined,
     extractionDebug: (d.extractionDebug as boolean | undefined) ?? undefined,
+    executionMode: normalizeExecutionMode(d.executionMode as string | undefined),
   };
 }
 

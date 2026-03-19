@@ -12,8 +12,14 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase/client";
-import type { LeadSource, LeadSourceCreate, LeadSourceUpdate, SourceExtractionConfig, LastScanDebug } from "./types";
+import type { LeadSource, LeadSourceCreate, LeadSourceUpdate, SourceExtractionConfig, LastScanDebug, ExecutionMode } from "./types";
 import { EXTERNAL_SCAN_METHOD, normalizeAuthStatus } from "./types";
+
+const EXECUTION_MODES: ExecutionMode[] = ["scan_only", "queue_only", "local_execute"];
+function normalizeExecutionMode(v: string | undefined): ExecutionMode {
+  if (v && EXECUTION_MODES.includes(v as ExecutionMode)) return v as ExecutionMode;
+  return "local_execute";
+}
 
 const COLLECTION = "lead_sources";
 
@@ -62,6 +68,7 @@ function toLeadSource(id: string, d: DocumentData): LeadSource {
     lastScanDebug: (d.lastScanDebug as LastScanDebug | undefined) ?? undefined,
     lastScanDurationMs: typeof d.lastScanDurationMs === "number" ? d.lastScanDurationMs : undefined,
     extractionDebug: d.extractionDebug ?? undefined,
+    executionMode: normalizeExecutionMode(d.executionMode as string | undefined),
   };
 }
 

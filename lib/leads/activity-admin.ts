@@ -18,10 +18,7 @@ export async function writeActivityRecordAdmin(
 ): Promise<string | null> {
   const db = getAdminFirestore();
   if (!db) return null;
-  // #region agent log
   const payload = stripUndefined(data);
-  fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "d2b155" }, body: JSON.stringify({ sessionId: "d2b155", location: "activity-admin.ts:writeActivityRecordAdmin", message: "write_leadCost", data: { hasLeadCost: "leadCost" in payload && payload.leadCost != null, leadCostValue: (payload as { leadCost?: string }).leadCost ?? null }, timestamp: Date.now(), hypothesisId: "H3" }) }).catch(() => {});
-  // #endregion
   const ref = await db.collection(COLLECTION).add({
     ...payload,
     scannedAt: FieldValue.serverTimestamp(),
@@ -40,10 +37,14 @@ export type LeadActivityPlatformUpdate = Partial<{
   postedAt: { seconds: number; nanoseconds: number };
   postedAtIso: string;
   postedAtText: string;
-  leadCost: string;
+  leadCost: string | null;
+  leadCostCredits: number | null;
   jobId?: string;
   hipagesActions: Record<string, unknown>;
   attachments: { url: string; label?: string }[];
+  acceptedConfirmedFromJobsPage: boolean;
+  acceptedConfirmedAt: { seconds: number; nanoseconds: number };
+  jobsPageLastSeenAt: { seconds: number; nanoseconds: number };
 }>;
 
 /**

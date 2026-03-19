@@ -3,6 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
       return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     match /projects/{docId} {
@@ -44,9 +45,6 @@ service cloud.firestore {
     match /scanned_leads/{docId} {
       allow read, write: if false;
     }
-    match /scan_runs/{docId} {
-      allow read, write: if false;
-    }
     match /lead_activity/{docId} {
       allow read, write: if isAdmin();
     }
@@ -55,6 +53,13 @@ service cloud.firestore {
     }
     match /push_subscriptions/{docId} {
       allow read, write: if false;
+    }
+    match /lead_action_queue/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /hipages_jobs/{docId} {
+      allow read, write: if isAdmin();
     }
   }
 }

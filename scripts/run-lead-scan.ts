@@ -11,13 +11,14 @@
  *   SCAN_STORAGE_STATE_PATH     Alternative to above; same effect. Use the same path for bootstrap and scan so one config works for both.
  * Relative paths are resolved from process.cwd().
  *
- * When neither env var is set, the script loads the source and uses the source's storageStatePath
- * (set via Connect/Reconnect in the UI) if present, resolved from process.cwd().
+ * When neither env var is set, the script loads the source and uses the canonical leads session file
+ * (same resolution as the leads scanner: storage-state.leads.json or legacy path from Firestore).
  */
 
 import path from "path";
 import { runExternalScan } from "../lib/leads/scanning/scan-runner";
 import { getSourceByIdAdmin } from "../lib/leads/sources-admin";
+import { resolveLeadsStorageStateAbsolute } from "../lib/leads/connection/session-persistence";
 
 const sourceId = process.argv[2]?.trim();
 if (!sourceId) {
@@ -35,8 +36,12 @@ async function main() {
 
   if (!storageStatePath) {
     const source = await getSourceByIdAdmin(sourceId);
-    if (source?.storageStatePath) {
-      storageStatePath = path.resolve(process.cwd(), source.storageStatePath);
+    if (source) {
+      try {
+        storageStatePath = resolveLeadsStorageStateAbsolute(source);
+      } catch {
+        /* no session file */
+      }
     }
   }
 

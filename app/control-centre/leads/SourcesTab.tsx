@@ -18,7 +18,7 @@ import {
 } from "@/lib/leads/sources";
 import { deleteSourceAndCredentials } from "./actions";
 import { getRuleSets } from "@/lib/leads/rule-sets";
-import type { LeadSource, LeadSourceCreate, LeadRuleSet, ScanRun, SourceExtractionConfig } from "@/lib/leads/types";
+import type { LeadSource, LeadSourceCreate, LeadRuleSet, SourceExtractionConfig } from "@/lib/leads/types";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 
 type SourcesTabProps = {
@@ -172,24 +172,6 @@ export function SourcesTab({
       setConnectError(e instanceof Error ? e.message : "Connection failed");
     } finally {
       setConnectingSourceId(null);
-    }
-  }
-
-  async function fetchScanRuns(sourceId: string): Promise<ScanRun[]> {
-    try {
-      const auth = getFirebaseAuth();
-      const user = auth.currentUser;
-      if (!user) return [];
-      const token = await user.getIdToken();
-      const res = await fetch(
-        `/api/control-centre/leads/scan-runs?sourceId=${encodeURIComponent(sourceId)}&limit=10`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (!res.ok) return [];
-      const data = (await res.json()) as { runs?: ScanRun[] };
-      return data.runs ?? [];
-    } catch {
-      return [];
     }
   }
 
@@ -396,10 +378,15 @@ export function SourcesTab({
           onConnect={handleConnect}
           onAnalyzePage={handleAnalyzePage}
           onDelete={handleDelete}
-          onFetchScanRuns={fetchScanRuns}
           connectingSourceId={connectingSourceId}
           analyzingSourceId={analyzingSourceId}
           basePath={basePath}
+          onExecutionModeChange={async () => {
+            const updated = await load(true);
+            if (detailsSource?.id) {
+              setDetailsSource(updated.find((s) => s.id === detailsSource.id) ?? null);
+            }
+          }}
         />
       )}
 

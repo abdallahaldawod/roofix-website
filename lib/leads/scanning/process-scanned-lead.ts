@@ -69,18 +69,30 @@ export async function processScannedLead(
       : undefined;
 
   const leadCost =
-    typeof lead.raw?.leadCost === "string" && lead.raw.leadCost
-      ? lead.raw.leadCost
-      : undefined;
+    typeof lead.raw?.leadCost === "string" && lead.raw.leadCost.trim() !== ""
+      ? lead.raw.leadCost.trim()
+      : null;
+  const rawCredits = lead.raw?.leadCostCredits;
+  const leadCostCredits =
+    typeof rawCredits === "number" && Number.isFinite(rawCredits) ? rawCredits : null;
 
-  // #region agent log
-  fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "d2b155" }, body: JSON.stringify({ sessionId: "d2b155", location: "process-scanned-lead.ts:processScannedLead", message: "process_leadCost", data: { rawLeadCost: lead.raw?.leadCost, rawLeadCostType: typeof lead.raw?.leadCost, leadCostOut: leadCost ?? null }, timestamp: Date.now(), hypothesisId: "H2-H3" }) }).catch(() => {});
-  // #endregion
-
-  const hipagesActions =
-    lead.raw?.hipagesActions && typeof lead.raw.hipagesActions === "object"
-      ? (lead.raw.hipagesActions as { accept?: string; decline?: string; waitlist?: string })
-      : undefined;
+  const rawHipages = lead.raw?.hipagesActions && typeof lead.raw.hipagesActions === "object"
+    ? (lead.raw.hipagesActions as {
+        accept?: string;
+        acceptLabel?: string;
+        decline?: string;
+        declineLabel?: string;
+        waitlist?: string;
+        waitlistLabel?: string;
+      })
+    : undefined;
+  const hipagesActions = rawHipages
+    ? {
+        ...(rawHipages.accept != null && { accept: rawHipages.accept, ...(rawHipages.acceptLabel != null && { acceptLabel: rawHipages.acceptLabel }) }),
+        ...(rawHipages.decline != null && { decline: rawHipages.decline, ...(rawHipages.declineLabel != null && { declineLabel: rawHipages.declineLabel }) }),
+        ...(rawHipages.waitlist != null && { waitlist: rawHipages.waitlist, ...(rawHipages.waitlistLabel != null && { waitlistLabel: rawHipages.waitlistLabel }) }),
+      }
+    : undefined;
 
   const attachments = Array.isArray(lead.raw?.attachments)
     ? (lead.raw.attachments as { url?: string; label?: string }[])
@@ -110,7 +122,8 @@ export async function processScannedLead(
     ...(postedAt ? { postedAt } : {}),
     ...(postedAtIso ? { postedAtIso } : {}),
     ...(postedAtText ? { postedAtText } : {}),
-    ...(leadCost ? { leadCost } : {}),
+    leadCost: leadCost ?? null,
+    leadCostCredits: leadCostCredits ?? null,
     ...(hipagesActions ? { hipagesActions } : {}),
     ...(attachments?.length ? { attachments } : {}),
   };
@@ -159,9 +172,13 @@ export function buildPlatformUpdateFromScannedLead(
       ? lead.raw.postedAtText
       : undefined;
   const leadCost =
-    typeof lead.raw?.leadCost === "string" && lead.raw.leadCost
-      ? lead.raw.leadCost
-      : undefined;
+    typeof lead.raw?.leadCost === "string" && lead.raw.leadCost.trim() !== ""
+      ? lead.raw.leadCost.trim()
+      : null;
+  const rawCredits = lead.raw?.leadCostCredits;
+  const leadCostCredits =
+    typeof rawCredits === "number" && Number.isFinite(rawCredits) ? rawCredits : null;
+
   const hipagesActions =
     lead.raw?.hipagesActions && typeof lead.raw.hipagesActions === "object"
       ? (lead.raw.hipagesActions as Record<string, unknown>)
@@ -183,7 +200,8 @@ export function buildPlatformUpdateFromScannedLead(
     ...(postedAt ? { postedAt } : {}),
     ...(postedAtIso ? { postedAtIso } : {}),
     ...(postedAtText ? { postedAtText } : {}),
-    ...(leadCost ? { leadCost } : {}),
+    leadCost: leadCost ?? null,
+    leadCostCredits: leadCostCredits ?? null,
     ...(hipagesActions ? { hipagesActions } : {}),
     ...(attachments?.length ? { attachments } : {}),
   };

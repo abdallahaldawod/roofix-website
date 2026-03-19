@@ -107,6 +107,18 @@ export function ActivityLeadModal({ lead, onClose }: ActivityLeadModalProps) {
 
         {/* Modal body */}
         <div className="space-y-4 p-6">
+          {lead.externalUrl ? (
+            <div className="rounded-xl border border-neutral-200 bg-white p-4">
+              <a
+                href={lead.externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-accent underline-offset-2 hover:underline"
+              >
+                Open job in Hipages →
+              </a>
+            </div>
+          ) : null}
           {/* Customer / contact (website leads or hipages fetch) */}
           {showCustomerSection && (
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
@@ -156,10 +168,20 @@ export function ActivityLeadModal({ lead, onClose }: ActivityLeadModalProps) {
                 <p className="text-xs font-medium text-neutral-500">Source</p>
                 <p className="mt-0.5 text-sm font-medium text-neutral-900">{lead.sourceName}</p>
               </div>
-              {lead.leadCost && (
+              {lead.canCreateQuote !== undefined && (
+                <div>
+                  <p className="text-xs font-medium text-neutral-500">Create quote on Hipages</p>
+                  <p className="mt-0.5 text-sm font-medium text-neutral-900">
+                    {lead.canCreateQuote ? "Yes" : "No"}
+                  </p>
+                </div>
+              )}
+              {(lead.leadCost || (lead.leadCostCredits != null && Number.isFinite(lead.leadCostCredits))) && (
                 <div>
                   <p className="text-xs font-medium text-neutral-500">Cost to accept</p>
-                  <p className="mt-0.5 text-sm font-medium text-neutral-900">{lead.leadCost}</p>
+                  <p className="mt-0.5 text-sm font-medium text-neutral-900">
+                    {lead.leadCost && lead.leadCost.trim() !== "" ? lead.leadCost : `${lead.leadCostCredits} credits`}
+                  </p>
                 </div>
               )}
               <div>

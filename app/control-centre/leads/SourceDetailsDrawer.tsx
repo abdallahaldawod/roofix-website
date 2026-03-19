@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   X,
   Link2,
@@ -13,9 +13,11 @@ import {
   ChevronDown,
   ChevronRight,
   ScanText,
+  Shield,
 } from "lucide-react";
-import type { LeadSource, ScanRun } from "@/lib/leads/types";
+import type { LeadSource, ExecutionMode } from "@/lib/leads/types";
 import { StatusBadge, ModeBadge, AuthStatusBadge, ScanStatusBadge } from "./Badge";
+import { updateSource } from "@/lib/leads/sources";
 
 function formatTime(ts: LeadSource["lastScanAt"] | LeadSource["lastAuthAt"]): string {
   if (!ts) return "—";
@@ -34,16 +36,6 @@ function truncateUrl(url: string, maxLen: number): string {
   return url.length <= maxLen ? url : url.slice(0, maxLen - 3) + "…";
 }
 
-function formatScanRunTime(ts: { seconds: number; nanoseconds: number }): string {
-  return new Date(ts.seconds * 1000).toLocaleString("en-AU", {
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
-
 type SourceDetailsDrawerProps = {
   source: LeadSource | null;
   onClose: () => void;
@@ -53,12 +45,12 @@ type SourceDetailsDrawerProps = {
   /** Run Analyze Page for this source (connected only). */
   onAnalyzePage?: (id: string) => void;
   onDelete?: (id: string) => void;
-  /** Fetch recent scan runs for diagnostics. */
-  onFetchScanRuns?: (sourceId: string) => Promise<ScanRun[]>;
   connectingSourceId: string | null;
   analyzingSourceId: string | null;
   /** Base path for links, e.g. /control-centre */
   basePath: string;
+  /** Called after execution mode is changed so parent can refresh source. */
+  onExecutionModeChange?: () => void;
 };
 
 export function SourceDetailsDrawer({
@@ -69,23 +61,14 @@ export function SourceDetailsDrawer({
   onConnect,
   onAnalyzePage,
   onDelete,
-  onFetchScanRuns,
   connectingSourceId,
   analyzingSourceId,
   basePath,
+  onExecutionModeChange,
 }: SourceDetailsDrawerProps) {
-  const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
-  const [loadingScanRuns, setLoadingScanRuns] = useState(false);
   const [debugSnippetOpen, setDebugSnippetOpen] = useState(false);
-
-  useEffect(() => {
-    if (!source?.id || !onFetchScanRuns) return;
-    setLoadingScanRuns(true);
-    onFetchScanRuns(source.id)
-      .then(setScanRuns)
-      .catch(() => setScanRuns([]))
-      .finally(() => setLoadingScanRuns(false));
-  }, [source?.id, onFetchScanRuns]);
+  const [executionModeSaving, setExecutionModeSaving] = useState(false);
+  const currentExecutionMode: ExecutionMode = source?.executionMode ?? "local_execute";
 
   if (!source) return null;
 
@@ -291,6 +274,88 @@ export function SourceDetailsDrawer({
             </div>
           </section>
 
+          {/* Action execution mode (external sources only) */}
+          {!source.isSystem && (
+            <section className="mb-6">
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                <Shield className="h-3.5 w-3.5" aria-hidden />
+                Action execution
+              </h3>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50/50 p-4">
+                <p className="mb-3 text-xs text-neutral-600">
+                  Controls whether Accept/Decline can be queued from the dashboard and whether the local worker may execute them.
+                </p>
+                <div className="space-y-3">
+                  {(
+                    [
+                      {
+                        value: "scan_only" as const,
+                        label: "Scan only",
+                        desc: "Imports leads only. No action queueing or execution.",
+                        safe: true,
+                      },
+                      {
+                        value: "queue_only" as const,
+                        label: "Queue only",
+                        desc: "Actions can be queued from the dashboard but are not executed by the worker.",
+                        safe: true,
+                      },
+                      {
+                        value: "local_execute" as const,
+                        label: "Local execute",
+                        desc: "Queued actions will be executed by the local worker on this machine.",
+                        safe: false,
+                      },
+                    ] as const
+                  ).map(({ value, label, desc, safe }) => (
+                    <label
+                      key={value}
+                      className={`flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors ${
+                        currentExecutionMode === value
+                          ? "border-neutral-900 bg-white ring-1 ring-neutral-900"
+                          : "border-neutral-200 hover:border-neutral-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="executionMode"
+                        value={value}
+                        checked={currentExecutionMode === value}
+                        disabled={executionModeSaving}
+                        onChange={async () => {
+                          if (currentExecutionMode === value) return;
+                          setExecutionModeSaving(true);
+                          try {
+                            await updateSource(source.id, { executionMode: value });
+                            onExecutionModeChange?.();
+                          } finally {
+                            setExecutionModeSaving(false);
+                          }
+                        }}
+                        className="h-4 w-4 border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium text-neutral-900">{label}</span>
+                        {!safe && (
+                          <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                            Executes in browser
+                          </span>
+                        )}
+                        <p className="mt-0.5 text-xs text-neutral-600">{desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                {executionModeSaving && (
+                  <p className="mt-2 flex items-center gap-2 text-xs text-neutral-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Saving…
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* Configuration summary */}
           <section className="mb-6">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
@@ -384,60 +449,6 @@ export function SourceDetailsDrawer({
                   )}
                 </dl>
               </div>
-            </section>
-          )}
-
-          {/* Recent scans */}
-          {!source.isSystem && onFetchScanRuns && (
-            <section className="mb-6">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Recent scans
-              </h3>
-              {loadingScanRuns ? (
-                <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50/50 p-4 text-sm text-neutral-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading…
-                </div>
-              ) : scanRuns.length === 0 ? (
-                <p className="rounded-xl border border-neutral-200 bg-neutral-50/50 p-4 text-sm text-neutral-500">
-                  No scan history yet.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {scanRuns.map((run) => (
-                    <li
-                      key={run.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50/50 px-3 py-2 text-sm"
-                    >
-                      <span className="text-neutral-600">
-                        {formatScanRunTime(run.startedAt)}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          run.status === "success"
-                            ? "bg-emerald-50 text-emerald-800"
-                            : run.status === "needs_reconnect"
-                              ? "bg-amber-50 text-amber-800"
-                              : "bg-red-50 text-red-800"
-                        }`}
-                      >
-                        {run.status}
-                      </span>
-                      {(run.imported != null || run.extracted != null) && (
-                        <span className="tabular-nums text-neutral-500">
-                          {run.imported ?? 0} imported
-                          {run.extracted != null ? ` / ${run.extracted} extracted` : ""}
-                        </span>
-                      )}
-                      {run.errorMessage && run.status !== "success" && (
-                        <p className="w-full truncate text-xs text-red-600" title={run.errorMessage}>
-                          {run.errorMessage}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </section>
           )}
 

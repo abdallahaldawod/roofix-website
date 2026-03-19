@@ -7,8 +7,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getSourceByIdAdmin, updateSourceAuthAdmin } from "@/lib/leads/sources-admin";
 import { runManualConnection } from "./playwright-connection";
 import {
-  getStorageStateAbsolutePath,
-  getStorageStateRelativePath,
+  getJobsStorageStateAbsolutePath,
+  getLeadsStorageStateAbsolutePath,
+  getLeadsStorageStateRelativePath,
   ensureSessionDir,
   validateSavedSession,
 } from "./session-persistence";
@@ -42,12 +43,14 @@ export async function connectSource(
   if (!setConnecting.ok) return setConnecting;
 
   ensureSessionDir(sourceId);
-  const absolutePath = getStorageStateAbsolutePath(sourceId);
+  const leadsAbsolutePath = getLeadsStorageStateAbsolutePath(sourceId);
+  const jobsAbsolutePath = getJobsStorageStateAbsolutePath(sourceId);
 
   const result = await runManualConnection({
     loginUrl,
     leadsUrl,
-    storageStatePath: absolutePath,
+    storageStatePath: leadsAbsolutePath,
+    extraStorageStatePaths: [jobsAbsolutePath],
     timeoutMs: CONNECTION_TIMEOUT_MS,
   });
 
@@ -60,7 +63,7 @@ export async function connectSource(
   }
 
   // Validate saved session before marking connected.
-  const validation = validateSavedSession(absolutePath);
+  const validation = validateSavedSession(leadsAbsolutePath);
   if (!validation.valid) {
     await updateSourceAuthAdmin(sourceId, {
       authStatus: "failed",
@@ -69,7 +72,7 @@ export async function connectSource(
     return { ok: false, error: validation.error };
   }
 
-  const relativePath = getStorageStateRelativePath(sourceId);
+  const relativePath = getLeadsStorageStateRelativePath(sourceId);
   const updateResult = await updateSourceAuthAdmin(sourceId, {
     authStatus: "connected",
     lastAuthAt: FieldValue.serverTimestamp(),

@@ -9,11 +9,18 @@
       ]
     },
     {
-      "collectionGroup": "scan_runs",
+      "collectionGroup": "lead_action_queue",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "sourceId", "order": "ASCENDING" },
-        { "fieldPath": "startedAt", "order": "DESCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "requestedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "lead_action_queue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "leadId", "order": "ASCENDING" }
       ]
     }
   ],
