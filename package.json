@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "dev:fresh": "rm -rf .next && next dev -p 3000",
     "dev:webpack": "next dev -p 3000 --webpack",
-    "build": "npx playwright install --with-deps chromium && next build",
+    "build": "npx playwright install chromium && next build",
     "start": "next start -p 3000",
     "start~npm": "next start -p 3000",
     "lint": "eslint",
