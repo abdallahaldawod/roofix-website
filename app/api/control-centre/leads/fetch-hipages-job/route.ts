@@ -302,8 +302,7 @@ export async function POST(request: Request) {
       }
       if (description) description = description.slice(0, 2000);
       let leadCost: string | undefined;
-      // 0) Job page may show "Free" (e.g. instead of credits) — check full page first so we don't show "—"
-      if (/\bfree\b/i.test(document.body.innerText ?? "")) leadCost = "Free";
+      // Only set "Free" from cost/credit context (label or section), not from generic page text (e.g. "free quote").
       // 1) Label-based: "Credit" or "Cost" label with value in next sibling or same block
       if (!leadCost) {
         const creditLabel = getLabelValue("credit") ?? getLabelValue("cost") ?? getLabelValue("lead cost");

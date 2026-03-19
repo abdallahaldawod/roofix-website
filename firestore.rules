@@ -53,5 +53,8 @@ service cloud.firestore {
     match /lead_settings/{docId} {
       allow read, write: if isAdmin();
     }
+    match /push_subscriptions/{docId} {
+      allow read, write: if false;
+    }
   }
 }

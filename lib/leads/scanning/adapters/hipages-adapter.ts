@@ -208,9 +208,7 @@ export class HipagesAdapter implements SourceAdapter {
     // ── lead cost (credit cost shown near accept button) ─────────────────────
     const costResult = await card
       .evaluate((el) => {
-        // If the card shows "Free" anywhere (e.g. strikethrough "34 credits" + "Free" in another element), show only "Free".
-        const fullTextFirst = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-        if (/\bfree\b/i.test(fullTextFirst)) return { leadCost: "Free", snippet: "" };
+        // Only treat "Free" as cost when it appears in the cost area (footer/section), not in description text (e.g. "free quote").
         // hipages shows the cost as a dollar amount or "N credits" near the accept/decline footer.
         const costOnly = (text: string): string | null => {
           const t = text.trim();
@@ -257,10 +255,8 @@ export class HipagesAdapter implements SourceAdapter {
           if (/\$\d+(\.\d+)?/.test(text) && text.length < 20) return { leadCost: text.trim(), snippet: "" };
           node = walker.nextNode();
         }
-        // Fallback: cost may be split across elements. Search full card text.
+        // Fallback: cost may be split across elements. Search full card text for $ or credits only (don't use "free" from full card — could be "free quote").
         const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-        // If it has "free", only display "Free" (don't show strikethrough credits).
-        if (/\bfree\b/i.test(fullText)) return { leadCost: "Free", snippet: "" };
         const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
         if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
         const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);
@@ -287,8 +283,6 @@ export class HipagesAdapter implements SourceAdapter {
       await new Promise((r) => setTimeout(r, 800));
       const retryResult = await card
         .evaluate((el) => {
-          const fullTextFirst = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-          if (/\bfree\b/i.test(fullTextFirst)) return { leadCost: "Free", snippet: "" };
           const costOnly = (text: string): string | null => {
             const t = text.trim();
             if (/^free$/i.test(t)) return "Free";
@@ -315,7 +309,6 @@ export class HipagesAdapter implements SourceAdapter {
             }
           }
           const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
-          if (/\bfree\b/i.test(fullText)) return { leadCost: "Free", snippet: "" };
           const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
           if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
           const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);

@@ -117,6 +117,15 @@ export async function processScannedLead(
 
   const activityId = await writeActivityRecordAdmin(activityCreate);
   if (!activityId) return { ok: false };
+  // Notify admins of new lead (fire-and-forget)
+  import("@/lib/push-notifications").then(({ sendPushToAdmins }) => {
+    sendPushToAdmins({
+      type: "new_lead",
+      title: lead.title,
+      activityId,
+      sourceName: source.name,
+    }).catch(() => {});
+  });
   return { ok: true, activityId, decision: result.decision };
 }
 

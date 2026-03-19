@@ -119,6 +119,14 @@ export async function processWebsiteLead(
     if (!fallbackActivityId) {
       return { ok: false, skipped: "Failed to write lead activity" };
     }
+    import("@/lib/push-notifications").then(({ sendPushToAdmins }) => {
+      sendPushToAdmins({
+        type: "new_lead",
+        title: payload.title,
+        activityId: fallbackActivityId,
+        sourceName: source.name,
+      }).catch(() => {});
+    });
 
     await incrementScanCountersAdmin(source.id, 1, 0);
     await updateIncomingLeadProcessed(incomingId, fallbackActivityId);
@@ -161,6 +169,14 @@ export async function processWebsiteLead(
   if (!activityId) {
     return { ok: false, skipped: "Failed to write lead activity" };
   }
+  import("@/lib/push-notifications").then(({ sendPushToAdmins }) => {
+    sendPushToAdmins({
+      type: "new_lead",
+      title: payload.title,
+      activityId,
+      sourceName: source.name,
+    }).catch(() => {});
+  });
 
   await incrementScanCountersAdmin(
     source.id,

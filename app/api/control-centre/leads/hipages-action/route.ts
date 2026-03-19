@@ -46,6 +46,17 @@ export async function POST(request: Request) {
   });
 
   if (result.ok) {
+    if (action === "accept" && typeof leadId === "string" && leadId.trim()) {
+      const { getActivityByIdAdmin } = await import("@/lib/leads/activity-admin");
+      const { sendPushToAdmins } = await import("@/lib/push-notifications");
+      const activity = await getActivityByIdAdmin(leadId.trim());
+      const title = (activity?.title as string) || "Lead accepted";
+      sendPushToAdmins({
+        type: "lead_accepted",
+        title,
+        activityId: leadId.trim(),
+      }).catch(() => {});
+    }
     return NextResponse.json({
       ok: true,
       finalUrl: result.finalUrl,

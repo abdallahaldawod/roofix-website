@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Search, Eye, Loader2, AlertCircle, Settings, Trash2, ChevronUp, ChevronDown, Check } from "lucide-react";
 import { useControlCentreBase } from "../use-base-path";
+import { PushNotifySubscribe } from "../PushNotifySubscribe";
 import { StatCard } from "./StatCard";
 import { ActivityLeadModal } from "./ActivityLeadModal";
 import { subscribeToActivity, deleteActivity, deleteActivities } from "@/lib/leads/activity";
@@ -196,6 +197,8 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [hipagesCreditError, setHipagesCreditError] = useState<string | null>(null);
   const [scanNewInProgress, setScanNewInProgress] = useState(false);
   const [scanNewError, setScanNewError] = useState<string | null>(null);
+  const [clearFreeCostInProgress, setClearFreeCostInProgress] = useState(false);
+  const [clearFreeCostMessage, setClearFreeCostMessage] = useState<string | null>(null);
 
   type SortBy = "cost" | "posted";
   const [sortBy, setSortBy] = useState<SortBy>("posted");
@@ -354,6 +357,35 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       setScanNewError(e instanceof Error ? e.message : "Scan failed");
     } finally {
       setScanNewInProgress(false);
+    }
+  }, [getToken]);
+
+  /** Clear erroneous "Free" leadCost on Hipages leads (from "free quote" etc.). */
+  const runClearFreeCost = useCallback(async () => {
+    setClearFreeCostMessage(null);
+    setClearFreeCostInProgress(true);
+    try {
+      const token = await getToken();
+      const res = await fetch("/api/control-centre/leads/clear-free-cost", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setClearFreeCostMessage(data?.error ?? "Request failed");
+        return;
+      }
+      const n = typeof data.updated === "number" ? data.updated : 0;
+      setClearFreeCostMessage(n === 0 ? "No leads needed updating" : `Cleared cost for ${n} lead${n === 1 ? "" : "s"}`);
+      setLastLeadsUpdateAt(Date.now());
+      if (n > 0) setTimeout(() => setClearFreeCostMessage(null), 5000);
+    } catch (e) {
+      setClearFreeCostMessage(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setClearFreeCostInProgress(false);
     }
   }, [getToken]);
 
@@ -598,13 +630,16 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               Your lead inbox from all sources
             </p>
           </div>
-          <Link
-            href={(base || "/control-centre") + "/leads/management"}
-            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
-          >
-            <Settings className="h-4 w-4" />
-            Lead Management
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <PushNotifySubscribe />
+            <Link
+              href={(base || "/control-centre") + "/leads/management"}
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
+            >
+              <Settings className="h-4 w-4" />
+              Lead Management
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -746,6 +781,24 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               ) : null}
               Sync now
             </button>
+          )}
+          <button
+            type="button"
+            onClick={runClearFreeCost}
+            disabled={clearFreeCostInProgress}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+            aria-label="Clear erroneous Free cost on Hipages leads"
+            title="Remove incorrect &quot;Free&quot; cost (e.g. from &quot;free quote&quot;) so cost shows as — until re-fetched"
+          >
+            {clearFreeCostInProgress ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : null}
+            Update lead costs
+          </button>
+          {clearFreeCostMessage && (
+            <span className="text-xs text-neutral-600" title={clearFreeCostMessage}>
+              {clearFreeCostMessage.length > 35 ? `${clearFreeCostMessage.slice(0, 35)}…` : clearFreeCostMessage}
+            </span>
           )}
           {scanNewError && (
             <span className="text-xs text-red-600" title={scanNewError}>

@@ -128,3 +128,22 @@ export async function deleteActivityById(id: string): Promise<void> {
   if (!db) return;
   await db.collection(COLLECTION).doc(id).delete();
 }
+
+/**
+ * Clears leadCost for Hipages leads that have leadCost "Free" (erroneous from "free quote" etc.).
+ * Returns the number of documents updated.
+ */
+export async function clearLeadCostForHipagesLeadsWithFreeAdmin(): Promise<number> {
+  const db = getAdminFirestore();
+  if (!db) return 0;
+  const snap = await db.collection(COLLECTION).where("leadCost", "==", "Free").get();
+  let updated = 0;
+  for (const doc of snap.docs) {
+    const data = doc.data() as Record<string, unknown>;
+    const sourceName = (data.sourceName as string) ?? "";
+    if (!sourceName.toLowerCase().includes("hipages")) continue;
+    await doc.ref.update({ leadCost: FieldValue.delete() });
+    updated += 1;
+  }
+  return updated;
+}
