@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { chromium } from "playwright";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
 import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
@@ -61,6 +60,7 @@ export async function POST(request: Request) {
 
   let browser;
   try {
+    const { chromium } = await import("playwright");
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ storageState: absolutePath });
     const page = await context.newPage();
@@ -258,27 +258,31 @@ export async function POST(request: Request) {
           }
         }
         let leadCost: string | undefined;
+        // Try multiple strategies so cost is found even if layout or click state varies
+        const costPattern = /(\$[\d,.]+|\d+(?:\.\d+)?\s*credits?)/i;
+        const costInText = (text: string) => {
+          const m = text.match(costPattern);
+          return m && (m[1] ?? m[0])?.length < 30 ? (m[1] ?? m[0])?.trim() : undefined;
+        };
         const withCredit = Array.from(document.querySelectorAll("main *, [role='dialog'] *")).filter(
           (el) => (el.textContent ?? "").toLowerCase().includes("credit")
         );
         for (const el of withCredit) {
-          const costMatch = (el.textContent ?? "").match(/(\d+(?:\.\d+)?\s*credits?|\$[\d,.]+)/i);
-          if (costMatch && (costMatch[1] ?? costMatch[0])?.length < 30) {
-            leadCost = (costMatch[1] ?? costMatch[0])?.trim();
-            break;
-          }
+          leadCost = costInText(el.textContent ?? "");
+          if (leadCost) break;
         }
         if (!leadCost) {
           const costSection = document.querySelector("main section[class*=\"gap-ml\"] div[class*=\"rounded-xl\"]");
           if (costSection && costSection.children[1]) {
-            const costText = (costSection.children[1].textContent ?? "").trim();
-            const costMatch = costText.match(/^\$[\d,.]+|^\d+(?:\.\d+)?\s*credits?/i) ?? costText.match(/(\$[\d,.]+|\d+(?:\.\d+)?\s*credits?)\s*-?/i);
-            if (costMatch) leadCost = (costMatch[1] ?? costMatch[0])?.trim();
+            leadCost = costInText((costSection.children[1].textContent ?? "").trim());
           }
         }
         if (!leadCost) {
-          const anyCost = document.body.innerText?.match(/(\$\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*credits?)/i);
-          if (anyCost) leadCost = anyCost[1]?.trim();
+          const mainEl = document.querySelector("main");
+          if (mainEl) leadCost = costInText(mainEl.innerText ?? mainEl.textContent ?? "");
+        }
+        if (!leadCost) {
+          leadCost = costInText(document.body.innerText ?? "");
         }
         return { customerName, email, phone, suburb: suburb || undefined, postcode: postcode || undefined, description, title, leadCost, postedAtText };
       });
@@ -387,6 +391,7 @@ export async function POST(request: Request) {
         scoreBreakdown: [],
         decision: "Accept",
         status: "Processed",
+        reasons: ["Imported from Hipages jobs"],
         timeline: [{ time: new Date().toISOString(), event: "Imported from hipages jobs" }],
         scannedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
         platformAccepted: true,

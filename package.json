@@ -3,16 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3100",
-    "dev:fresh": "rm -rf .next && next dev -p 3100",
-    "dev:webpack": "next dev -p 3100 --webpack",
+    "dev": "next dev -p 3000",
+    "dev:fresh": "rm -rf .next && next dev -p 3000",
+    "dev:webpack": "next dev -p 3000 --webpack",
     "build": "npx playwright install --with-deps chromium && next build",
-    "start": "next start",
+    "start": "next start -p 3000",
+    "start~npm": "next start -p 3000",
     "lint": "eslint",
     "deploy:storage": "npx firebase-tools deploy --only storage",
     "deploy:rules": "npx firebase-tools deploy --only firestore,storage",
     "lead-scan": "tsx scripts/run-lead-scan.ts",
-    "bootstrap-hipages-auth": "tsx scripts/bootstrap-hipages-auth.ts"
+    "bootstrap-hipages-auth": "tsx scripts/bootstrap-hipages-auth.ts",
+    "scanner-worker": "tsx scripts/scanner-worker.ts"
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.1",

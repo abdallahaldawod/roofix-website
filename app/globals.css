@@ -170,3 +170,23 @@ select.form-select:focus {
   stroke-dashoffset: 24;
   animation: contact-tick-draw 0.45s ease-out 0.35s forwards;
 }
+
+/* PWA / notched devices: safe-area insets (use with viewport-fit: cover) */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.safe-left {
+  padding-left: env(safe-area-inset-left, 0);
+}
+.safe-right {
+  padding-right: env(safe-area-inset-right, 0);
+}
+
+/* Touch-friendly: minimum 44px tap target (control-centre mobile) */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}

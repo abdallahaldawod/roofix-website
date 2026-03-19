@@ -357,7 +357,7 @@ export default function AnalyticsPage() {
           </h1>
           <p className="mt-1 text-sm text-neutral-500">GA4 metrics from your property</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="w-full sm:w-auto sm:min-w-0">
           <DateRangeDropdown
             startDate={startDate}
             endDate={endDate}
@@ -427,7 +427,7 @@ export default function AnalyticsPage() {
                   key={r}
                   type="button"
                   onClick={() => setLiveRange(r)}
-                  className={`min-h-[36px] rounded-md px-2.5 py-2 text-xs font-medium transition-colors sm:py-1.5 ${
+                  className={`min-h-[44px] min-w-[44px] flex-1 rounded-md px-2.5 py-2 text-xs font-medium transition-colors sm:min-w-0 sm:flex-none sm:py-1.5 ${
                     liveRange === r ? "bg-emerald-600 text-white" : "text-neutral-600 hover:bg-emerald-50"
                   }`}
                 >
@@ -546,7 +546,7 @@ export default function AnalyticsPage() {
                 <span className="ml-2 font-normal text-neutral-500">{rangeLabel}</span>
               </h2>
             </div>
-            <div className="h-56 px-2 py-3 sm:h-80 sm:px-4 sm:py-4">
+            <div className="min-h-[220px] h-56 px-2 py-3 sm:h-80 sm:px-4 sm:py-4">
               {loading ? (
                 <div className="analytics-chart-skeleton h-full w-full" aria-hidden />
               ) : byDate.length > 0 ? (

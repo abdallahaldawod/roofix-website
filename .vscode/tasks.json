@@ -2,6 +2,64 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Run Dev Server",
+      "type": "shell",
+      "command": "npm run dev",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Kill Dev Server",
+      "type": "shell",
+      "command": "lsof -ti:3100 | xargs kill -9 2>/dev/null || true",
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build and Start Only",
+      "type": "shell",
+      "command": "npm run build && npm run start",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build and Start",
+      "type": "shell",
+      "command": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true; npm run build && npm run start",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Restart Dev Server",
+      "type": "shell",
+      "command": "lsof -ti:3100 | xargs kill -9 2>/dev/null; npm run dev",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Run My Command",
       "type": "shell",
       "command": "echo 'Replace with your command'",

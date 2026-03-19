@@ -59,7 +59,7 @@ export default function SitePagesPage() {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50 hover:border-neutral-300"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50 hover:border-neutral-300"
                 >
                   <ExternalLink className="h-4 w-4" />
                   View on site
@@ -67,7 +67,7 @@ export default function SitePagesPage() {
                 {editHref && (
                   <Link
                     href={editHref}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent shadow-sm transition-colors hover:bg-accent/10"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent shadow-sm transition-colors hover:bg-accent/10"
                   >
                     <Pencil className="h-4 w-4" />
                     Edit with live editor

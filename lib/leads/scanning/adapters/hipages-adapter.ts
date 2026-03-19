@@ -206,38 +206,144 @@ export class HipagesAdapter implements SourceAdapter {
     }
 
     // ── lead cost (credit cost shown near accept button) ─────────────────────
-    const leadCost = await card
+    const costResult = await card
       .evaluate((el) => {
+        // If the card shows "Free" anywhere (e.g. strikethrough "34 credits" + "Free" in another element), show only "Free".
+        const fullTextFirst = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
+        if (/\bfree\b/i.test(fullTextFirst)) return { leadCost: "Free", snippet: "" };
         // hipages shows the cost as a dollar amount or "N credits" near the accept/decline footer.
-        // Sometimes followed by " - Small job" or similar; we strip that and keep only the cost.
         const costOnly = (text: string): string | null => {
           const t = text.trim();
-          // Exact: "$12.50", "12 credits"
+          if (/^free$/i.test(t)) return "Free";
           if (/^\$\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?\s+credits?$/i.test(t)) return t;
-          // With optional suffix " - Small job" etc.: capture cost part only
           const withSuffix = /^(\$\d+(?:\.\d+)?|\d+(?:\.\d+)?\s+credits?)\s*-\s*./i.exec(t);
           if (withSuffix) return withSuffix[1].trim();
           return null;
         };
+        // Cost often lives in article > section:nth-child(13) > div > span (footer/cost area).
+        const sections = Array.from(el.querySelectorAll(":scope > section"));
+        const costSection = sections[12];
+        if (costSection) {
+          const sectionText = (costSection as HTMLElement).innerText?.trim() ?? costSection.textContent?.trim() ?? "";
+          // If it has "free", only display "Free" (don't show strikethrough credits).
+          if (/\bfree\b/i.test(sectionText)) return { leadCost: "Free", snippet: "" };
+          const cost = costOnly(sectionText);
+          if (cost) return { leadCost: cost, snippet: "" };
+          const span = costSection.querySelector("div span");
+          const spanText = span ? (span as HTMLElement).innerText?.trim() ?? span.textContent?.trim() ?? "" : "";
+          if (spanText) {
+            if (/\bfree\b/i.test(spanText)) return { leadCost: "Free", snippet: "" };
+            const costFromSpan = costOnly(spanText);
+            if (costFromSpan) return { leadCost: costFromSpan, snippet: "" };
+            const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(spanText);
+            if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
+            const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(spanText);
+            if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
+          }
+        }
         const allEls = Array.from(el.querySelectorAll("*"));
         for (const node of allEls) {
           if (node.children.length > 0) continue;
           const text = (node as HTMLElement).innerText?.trim() ?? node.textContent?.trim() ?? "";
           const cost = costOnly(text);
-          if (cost) return cost;
+          if (cost) return { leadCost: cost, snippet: "" };
         }
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         let node = walker.nextNode();
         while (node) {
           const text = node.textContent?.trim() ?? "";
           const cost = costOnly(text);
-          if (cost) return cost;
-          if (/\$\d+(\.\d+)?/.test(text) && text.length < 20) return text.trim();
+          if (cost) return { leadCost: cost, snippet: "" };
+          if (/\$\d+(\.\d+)?/.test(text) && text.length < 20) return { leadCost: text.trim(), snippet: "" };
           node = walker.nextNode();
         }
-        return null;
+        // Fallback: cost may be split across elements. Search full card text.
+        const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
+        // If it has "free", only display "Free" (don't show strikethrough credits).
+        if (/\bfree\b/i.test(fullText)) return { leadCost: "Free", snippet: "" };
+        const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
+        if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
+        const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);
+        if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
+        // No cost found: return snippet of card text for debugging (last 400 chars often contain footer/cost area).
+        const snippet = fullText.length > 400 ? fullText.slice(-400) : fullText;
+        return { leadCost: null, snippet: snippet.replace(/\s+/g, " ").trim() };
       })
-      .catch(() => null);
+      .catch(() => ({ leadCost: null, snippet: "" }));
+
+    let leadCost =
+      costResult && typeof costResult === "object" && "leadCost" in costResult
+        ? costResult.leadCost
+        : null;
+    let snippet =
+      costResult && typeof costResult === "object" && "snippet" in costResult
+        ? String(costResult.snippet ?? "")
+        : "";
+    // When card had no text (empty snippet), SPA may not have painted yet. Retry once after a short delay.
+    let retryUsed = false;
+    let retryRecovered = false;
+    if (leadCost == null && snippet === "") {
+      retryUsed = true;
+      await new Promise((r) => setTimeout(r, 800));
+      const retryResult = await card
+        .evaluate((el) => {
+          const fullTextFirst = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
+          if (/\bfree\b/i.test(fullTextFirst)) return { leadCost: "Free", snippet: "" };
+          const costOnly = (text: string): string | null => {
+            const t = text.trim();
+            if (/^free$/i.test(t)) return "Free";
+            if (/^\$\d+(\.\d+)?$/.test(t) || /^\d+(\.\d+)?\s+credits?$/i.test(t)) return t;
+            const withSuffix = /^(\$\d+(?:\.\d+)?|\d+(?:\.\d+)?\s+credits?)\s*-\s*./i.exec(t);
+            if (withSuffix) return withSuffix[1].trim();
+            return null;
+          };
+          const sections = Array.from(el.querySelectorAll(":scope > section"));
+          const costSection = sections[12];
+          if (costSection) {
+            const sectionText = (costSection as HTMLElement).innerText?.trim() ?? costSection.textContent?.trim() ?? "";
+            if (/\bfree\b/i.test(sectionText)) return { leadCost: "Free", snippet: "" };
+            const cost = costOnly(sectionText);
+            if (cost) return { leadCost: cost, snippet: "" };
+            const span = costSection.querySelector("div span");
+            const spanText = span ? (span as HTMLElement).innerText?.trim() ?? span.textContent?.trim() ?? "" : "";
+            if (spanText && /\bfree\b/i.test(spanText)) return { leadCost: "Free", snippet: "" };
+            if (spanText) {
+              const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(spanText);
+              if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
+              const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(spanText);
+              if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
+            }
+          }
+          const fullText = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? "";
+          if (/\bfree\b/i.test(fullText)) return { leadCost: "Free", snippet: "" };
+          const dollarMatch = /\$(\d+(?:\.\d+)?)/.exec(fullText);
+          if (dollarMatch) return { leadCost: `$${dollarMatch[1]}`, snippet: "" };
+          const creditsMatch = /(\d+(?:\.\d+)?)\s*credits?/i.exec(fullText);
+          if (creditsMatch) return { leadCost: `${creditsMatch[1]} credits`, snippet: "" };
+          return { leadCost: null, snippet: fullText.slice(-400).replace(/\s+/g, " ").trim() };
+        })
+        .catch(() => ({ leadCost: null, snippet: "" }));
+      if (retryResult && typeof retryResult === "object" && retryResult.leadCost) {
+        leadCost = retryResult.leadCost;
+        snippet = String(retryResult.snippet ?? "");
+        retryRecovered = true;
+      }
+    }
+
+    // #region agent log
+    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" },
+      body: JSON.stringify({
+        sessionId: "7a5692",
+        location: "hipages-adapter.ts:extractOneCard:leadCost",
+        message: "scanner leadCost extracted",
+        data: { index, leadCost: leadCost ?? null, hasCost: !!leadCost, snippetWhenNull: leadCost ? undefined : snippet.slice(0, 250), retryUsed, retryRecovered },
+        timestamp: Date.now(),
+        hypothesisId: "A",
+      }),
+    }).catch(() => {});
+    // #endregion
 
     // ── job description from "Job Description" section ────────────────────────
     const description = await card

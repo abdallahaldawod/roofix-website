@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
-import { runBackgroundScan } from "@/lib/leads/scanning/background-scan-runner";
 
 /** POST: run background (headless) scan for an external connected source. */
 export async function POST(request: Request) {
@@ -42,6 +41,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const { runBackgroundScan } = await import("@/lib/leads/scanning/background-scan-runner");
     const result = await runBackgroundScan(sourceId);
     if (result.ok) {
       return NextResponse.json({ ok: true });

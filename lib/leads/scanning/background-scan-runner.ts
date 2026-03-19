@@ -198,6 +198,7 @@ export async function runBackgroundScan(
         lastScanAt: now,
         lastScanStatus: "failed",
         lastScanError: userMessage,
+        lastScanDurationMs: Date.now() - startedAtMs,
       });
       await writeScanRunAdmin({
         sourceId,
@@ -253,6 +254,32 @@ export async function runBackgroundScan(
                 .first()
                 .waitFor({ state: "attached", timeout: WAIT_FOR_CARDS_MS });
             } catch (waitErr) {
+              // #region agent log
+              const failUrl = page.url();
+              const failTitle = await page.title().catch(() => "");
+              const failCardCount = effectiveCardSelector
+                ? await page.locator(effectiveCardSelector).count().catch(() => -1)
+                : -1;
+              fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" },
+                body: JSON.stringify({
+                  sessionId: "7a5692",
+                  location: "background-scan-runner.ts:wait_cards_failed",
+                  message: "wait_cards failed diagnostics",
+                  data: {
+                    sourceId,
+                    selector: effectiveCardSelector ?? null,
+                    pageUrl: failUrl,
+                    pageTitle: failTitle?.slice(0, 120),
+                    cardCountAtFail: failCardCount,
+                    waitTimeoutMs: WAIT_FOR_CARDS_MS,
+                  },
+                  timestamp: Date.now(),
+                  hypothesisId: "A",
+                }),
+              }).catch(() => {});
+              // #endregion
               await browser.close();
               logScan("scan_failed", {
                 sourceId,
@@ -263,12 +290,14 @@ export async function runBackgroundScan(
                 lastScanAt: now,
                 lastScanStatus: "failed",
                 lastScanError: NO_CARDS_MESSAGE,
+                lastScanDurationMs: Date.now() - startedAtMs,
               });
               await writeScanRunAdmin({
                 sourceId,
                 startedAtMs,
                 status: "failed",
                 errorMessage: NO_CARDS_MESSAGE,
+                debug: { pageUrl: failUrl, pageTitle: failTitle },
               });
               return { ok: false, error: NO_CARDS_MESSAGE };
             }
@@ -325,6 +354,7 @@ export async function runBackgroundScan(
               lastScanStatus: "failed",
               lastScanError: NO_CARDS_MESSAGE,
               lastScanDebug: debugLocal,
+              lastScanDurationMs: Date.now() - startedAtMs,
             });
             await writeScanRunAdmin({
               sourceId,
@@ -336,6 +366,9 @@ export async function runBackgroundScan(
             return { ok: false, error: NO_CARDS_MESSAGE };
           }
 
+          // Each new lead is written to Firestore immediately (processScannedLead → writeActivityRecordAdmin).
+          // The Leads table subscribes to lead_activity via onSnapshot, so new leads appear in real time
+          // while the scanner continues to the next lead without waiting for UI updates.
           const currentDedupeKeys = new Set<string>();
           for (const raw of leads) {
             const normalized = normalizeToScannedLead(raw, source.id, source.name);
@@ -358,8 +391,18 @@ export async function runBackgroundScan(
               const activity = await getActivityByIdAdmin(activityId);
               if (activity) {
                 const payload = buildPlatformUpdateFromScannedLead(normalized);
+                // #region agent log
+                fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:rescan platform update", message: "payload leadCost (existing lead)", data: { activityId, payloadLeadCost: payload.leadCost, activityLeadCost: activity.leadCost }, timestamp: Date.now(), hypothesisId: "B" }) }).catch(() => {});
+                // #endregion
                 if (!platformDataEquals(payload, activity)) {
-                  await updateActivityAdmin(activityId, payload).catch(() => {});
+                  await updateActivityAdmin(activityId, payload).catch((err) => {
+                    logScan("update_activity_failed", {
+                      sourceId,
+                      activityId,
+                      error: err instanceof Error ? err.message : String(err),
+                      hadLeadCost: !!payload.leadCost,
+                    });
+                  });
                 }
               }
               // Re-apply rules on rescan: re-evaluate with current rule set and update score/decision, then trigger platform action if set.
@@ -443,8 +486,19 @@ export async function runBackgroundScan(
               const activity = await getActivityByIdAdmin(activityId);
               if (activity) {
                 const payload = buildPlatformUpdateFromScannedLead(normalized);
+                // #region agent log
+                fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:rescan platform update (re-fetch)", message: "payload leadCost (existing lead)", data: { activityId, payloadLeadCost: payload.leadCost, activityLeadCost: activity.leadCost }, timestamp: Date.now(), hypothesisId: "B" }) }).catch(() => {});
+                // #endregion
                 if (!platformDataEquals(payload, activity)) {
-                  await updateActivityAdmin(activityId, payload).catch(() => {});
+                  await updateActivityAdmin(activityId, payload).catch((err) => {
+                    logScan("update_activity_failed", {
+                      sourceId,
+                      activityId,
+                      error: err instanceof Error ? err.message : String(err),
+                      hadLeadCost: !!payload.leadCost,
+                      path: "re-fetch",
+                    });
+                  });
                 }
               }
               if (effectiveRuleSet) {
@@ -518,6 +572,15 @@ export async function runBackgroundScan(
                 processResult.decision === "Accept" ? 1 : 0
               );
               imported++;
+              logScan("lead_imported", {
+                sourceId,
+                activityId: processResult.activityId,
+                decision: processResult.decision,
+                title: normalized.title?.slice(0, 60),
+              });
+              // #region agent log
+              fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "background-scan-runner.ts:new lead imported", message: "lead_imported_with_cost", data: { activityId: processResult.activityId, leadCost: normalized.raw?.leadCost ?? null }, timestamp: Date.now(), hypothesisId: "C" }) }).catch(() => {});
+              // #endregion
 
               // When rule set has a trigger platform action for this decision, press the button on the platform (e.g. hipages).
               const decisionKey = processResult.decision.toLowerCase() as "accept" | "review" | "reject";
@@ -578,12 +641,13 @@ export async function runBackgroundScan(
             await deleteScannedLeadRaw(row.id).catch(() => {});
           }
 
+          // Cycle summary: new leads written to Firestore this run; table already updated via onSnapshot.
           logScan("import_done", {
             sourceId,
+            new: imported,
+            duplicates: duplicate,
+            failed: failedImport,
             extracted,
-            duplicate,
-            imported,
-            failedImport,
           });
         } catch (extractErr) {
           await browser.close();
@@ -594,6 +658,7 @@ export async function runBackgroundScan(
             lastScanAt: now,
             lastScanStatus: "failed",
             lastScanError: errorMessage,
+            lastScanDurationMs: Date.now() - startedAtMs,
           });
           await writeScanRunAdmin({
             sourceId,
@@ -606,6 +671,7 @@ export async function runBackgroundScan(
       }
 
       await browser.close();
+      const durationMs = Date.now() - startedAtMs;
       await updateSourceScanResultAdmin(sourceId, {
         lastScanAt: now,
         lastScanStatus: "success",
@@ -615,6 +681,7 @@ export async function runBackgroundScan(
         lastScanFailedExtraction: failedExtraction,
         lastScanImported: imported,
         lastScanFailedImport: failedImport,
+        lastScanDurationMs: durationMs,
         ...(lastScanDebug != null ? { lastScanDebug } : {}),
       });
       await writeScanRunAdmin({
@@ -651,6 +718,7 @@ export async function runBackgroundScan(
       lastScanAt: now,
       lastScanStatus: "needs_reconnect",
       lastScanError: message,
+      lastScanDurationMs: Date.now() - startedAtMs,
     });
     await writeScanRunAdmin({
       sourceId,
@@ -671,6 +739,7 @@ export async function runBackgroundScan(
       lastScanAt: now,
       lastScanStatus: "failed",
       lastScanError: errorMessage,
+      lastScanDurationMs: Date.now() - startedAtMs,
     });
     await writeScanRunAdmin({
       sourceId,

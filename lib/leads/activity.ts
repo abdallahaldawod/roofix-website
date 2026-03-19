@@ -73,6 +73,8 @@ const ACTIVITY_LIMIT = 100;
 /**
  * Subscribe to lead_activity in real time. The callback is called on every change
  * (new, updated, removed). Returns an unsubscribe function.
+ * Uses includeMetadataChanges so we can prefer server snapshots over cache and avoid
+ * overwriting fresh data (e.g. scanner imports) with stale cached snapshots.
  */
 export function subscribeToActivity(
   callback: (leads: LeadActivity[]) => void,
@@ -84,9 +86,16 @@ export function subscribeToActivity(
     orderBy("scannedAt", "desc"),
     limit(ACTIVITY_LIMIT)
   );
+  let hasReceivedServerSnapshot = false;
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snap) => {
+      const fromCache = snap.metadata?.fromCache ?? false;
+      if (fromCache && hasReceivedServerSnapshot) {
+        return;
+      }
+      if (!fromCache) hasReceivedServerSnapshot = true;
       const leads = snap.docs.map((d) => toLeadActivity(d.id, d.data()));
       callback(leads);
     },

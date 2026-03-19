@@ -92,7 +92,7 @@ export function DashboardOverview() {
         <Link
           key={stat.label}
           href={stat.href}
-          className="flex items-center gap-4 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
+          className="flex min-h-[44px] items-center gap-4 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
             <stat.icon className="h-6 w-6" />

@@ -80,7 +80,7 @@ export function LoginForm({ searchParams }: { searchParams: ResolvedSearchParams
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
@@ -94,7 +94,7 @@ export function LoginForm({ searchParams }: { searchParams: ResolvedSearchParams
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-3 py-2 text-neutral-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
           <button

@@ -3,14 +3,15 @@
  * Used for public page reads from Firestore (projects, services, testimonials).
  * Requires FIREBASE_PROJECT_ID and either:
  * - FIREBASE_SERVICE_ACCOUNT_KEY (full JSON string), or
- * - FIREBASE_SERVICE_ACCOUNT_KEY_PATH (path to JSON file; dev only, avoids paste corruption).
+ * - FIREBASE_SERVICE_ACCOUNT_KEY_PATH (path to JSON file; avoids paste corruption; works in dev and when running next start locally).
+ *
+ * firebase-admin is required lazily (inside getAdminApp etc.) so Turbopack doesn't hang
+ * when compiling routes that import this module.
  */
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { getApps, initializeApp, cert, type ServiceAccount } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import type { ServiceAccount } from "firebase-admin/app";
 
 /** Firebase Console JSON uses snake_case; cert() requires camelCase. */
 function toServiceAccount(raw: Record<string, unknown>): ServiceAccount {
@@ -32,9 +33,29 @@ function toServiceAccount(raw: Record<string, unknown>): ServiceAccount {
 }
 
 function getKeyJson(): string {
-  // In development, allow loading from a file path to avoid copy-paste corruption of the private key
+  // #region agent log
+  const _env = {
+    NODE_ENV: process.env.NODE_ENV,
+    hasKeyPath: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()),
+    hasKey: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()),
+    cwd: process.cwd(),
+  };
+  fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a8e7e3" },
+    body: JSON.stringify({
+      sessionId: "a8e7e3",
+      location: "lib/firebase/admin.ts:getKeyJson",
+      message: "getKeyJson entry",
+      data: _env,
+      timestamp: Date.now(),
+      hypothesisId: "H1-H4",
+    }),
+  }).catch(() => {});
+  // #endregion
+  // Allow loading from a file path (dev and production, e.g. npm run start with .env.local)
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH;
-  if (process.env.NODE_ENV === "development" && keyPath?.trim()) {
+  if (keyPath?.trim()) {
     try {
       const resolved = resolve(process.cwd(), keyPath.trim());
       return readFileSync(resolved, "utf8");
@@ -44,8 +65,22 @@ function getKeyJson(): string {
   }
   const keyJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!keyJson || keyJson.trim() === "") {
+    // #region agent log
+    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a8e7e3" },
+      body: JSON.stringify({
+        sessionId: "a8e7e3",
+        location: "lib/firebase/admin.ts:getKeyJson",
+        message: "getKeyJson aboutToThrow",
+        data: { NODE_ENV: process.env.NODE_ENV, hasKeyPath: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()), hasKey: false },
+        timestamp: Date.now(),
+        hypothesisId: "H1-H2",
+      }),
+    }).catch(() => {});
+    // #endregion
     throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT_KEY (or FIREBASE_SERVICE_ACCOUNT_KEY_PATH in dev) is required. See .env.local.example."
+      "FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_SERVICE_ACCOUNT_KEY_PATH is required. See .env.local.example."
     );
   }
   return keyJson;
@@ -72,6 +107,7 @@ function getFirebaseAdminConfig(): ServiceAccount | { projectId: string } {
 }
 
 function getAdminApp() {
+  const { getApps, initializeApp, cert } = require("firebase-admin/app") as typeof import("firebase-admin/app");
   const apps = getApps();
   if (apps.length > 0) return apps[0]!;
   const config = getFirebaseAdminConfig();
@@ -88,12 +124,14 @@ function getAdminApp() {
 }
 
 export function getAdminAuth() {
+  const { getAuth } = require("firebase-admin/auth") as typeof import("firebase-admin/auth");
   return getAuth(getAdminApp());
 }
 
 /** Returns null if Firebase Admin is misconfigured so the data layer can return [] instead of throwing (avoids 500 in production). */
-export function getAdminFirestore(): ReturnType<typeof getFirestore> | null {
+export function getAdminFirestore() {
   try {
+    const { getFirestore } = require("firebase-admin/firestore") as typeof import("firebase-admin/firestore");
     const app = getAdminApp();
     return getFirestore(app);
   } catch (e) {
@@ -108,6 +146,6 @@ export function isFirebaseAdminConfigured(): boolean {
   const hasProjectId = Boolean(process.env.FIREBASE_PROJECT_ID);
   const hasKey =
     Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()) ||
-    (process.env.NODE_ENV === "development" && Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim()));
+    Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH?.trim());
   return hasProjectId && hasKey;
 }

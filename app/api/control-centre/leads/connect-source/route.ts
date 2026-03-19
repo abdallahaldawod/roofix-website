@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
-import { connectSource } from "@/lib/leads/connection/connect-source";
 
 /** POST: run manual Connect Source flow for an external lead source. */
 export async function POST(request: Request) {
@@ -42,6 +41,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const { connectSource } = await import("@/lib/leads/connection/connect-source");
     const result = await connectSource(sourceId);
     if (result.ok) {
       return NextResponse.json({ ok: true });

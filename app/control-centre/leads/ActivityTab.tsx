@@ -109,7 +109,7 @@ export function ActivityTab({ refreshKey = 0 }: ActivityTabProps) {
   });
 
   const selectClass =
-    "rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400";
+    "min-h-[44px] rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400";
 
   const uniqueSources = Array.from(new Set(leads.map((l) => l.sourceName)));
 
@@ -228,7 +228,54 @@ export function ActivityTab({ refreshKey = 0 }: ActivityTabProps) {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          {/* Mobile: card list */}
+          <div className="space-y-3 p-4 md:hidden">
+            {filtered.map((lead) => (
+              <div
+                key={lead.id}
+                className="rounded-xl border border-neutral-200 p-4"
+              >
+                <p className="font-medium text-neutral-900">{lead.title}</p>
+                <p className="mt-0.5 text-sm text-neutral-600">
+                  {lead.sourceName} · {lead.suburb}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <DecisionBadge decision={lead.decision} />
+                  <ActivityStatusBadge status={lead.status} />
+                  <span className="text-xs text-neutral-500">
+                    Score {lead.score} · {formatTime(lead.scannedAt)}
+                  </span>
+                </div>
+                {lead.matchedKeywords.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {lead.matchedKeywords.slice(0, 3).map((kw) => (
+                      <span
+                        key={kw}
+                        className="inline-flex rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-700"
+                      >
+                        {kw}
+                      </span>
+                    ))}
+                    {lead.matchedKeywords.length > 3 && (
+                      <span className="text-xs text-neutral-500">+{lead.matchedKeywords.length - 3}</span>
+                    )}
+                  </div>
+                )}
+                <div className="mt-3 border-t border-neutral-100 pt-3">
+                  <button
+                    type="button"
+                    aria-label="View lead details"
+                    onClick={() => setSelectedLeadId(lead.id)}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  >
+                    <Eye className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Desktop: table */}
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full divide-y divide-neutral-100">
               <thead className="bg-neutral-50/80">
                 <tr>
@@ -307,7 +354,7 @@ export function ActivityTab({ refreshKey = 0 }: ActivityTabProps) {
                         type="button"
                         aria-label="View lead details"
                         onClick={() => setSelectedLeadId(lead.id)}
-                        className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                        className="ml-auto flex h-9 w-9 min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                       >
                         <Eye className="h-4 w-4" />
                       </button>

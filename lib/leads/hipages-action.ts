@@ -6,7 +6,7 @@
 import { chromium } from "playwright";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
 import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
-import { updateActivityFieldsAdmin } from "@/lib/leads/activity-admin";
+import { updateActivityFieldsAdmin, updateActivityAdmin } from "@/lib/leads/activity-admin";
 
 const HIPAGES_BASE = "https://www.hipages.com.au";
 const VALID_ACTIONS = ["accept", "decline", "waitlist"] as const;
@@ -108,9 +108,15 @@ export async function performHipagesAction(
 
     if (navigatedToActionPage) {
       step = "confirm_on_page";
+      // #region agent log
+      fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:confirm_on_page entry", message: "confirm_on_page branch", data: { currentUrl, formSelector, actionPathBase, navigatedToActionPage }, timestamp: Date.now(), hypothesisId: "H4" }) }).catch(() => {});
+      // #endregion
       try {
         const form = page.locator(formSelector).first();
         await form.waitFor({ state: "visible", timeout: 8_000 });
+        // #region agent log
+        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:form visible", message: "form found", data: { formSelector }, timestamp: Date.now(), hypothesisId: "H1" }) }).catch(() => {});
+        // #endregion
         const submitBtn = form.locator('button[type="submit"]').first();
         if (await submitBtn.isVisible().catch(() => false)) {
           await submitBtn.click({ force: true });
@@ -119,20 +125,45 @@ export async function performHipagesAction(
           await form.evaluate((el) => (el as HTMLFormElement).requestSubmit());
           confirmed = true;
         }
-      } catch {
-        for (const btnText of ["Confirm", "Accept", "Yes", "Submit"]) {
+      } catch (formErr) {
+        const formErrMsg = formErr instanceof Error ? formErr.message : String(formErr);
+        const diag = await page.evaluate((sel: string) => {
+          const forms = document.querySelectorAll(sel);
+          const allForms = document.querySelectorAll("form");
+          const buttons = Array.from(document.querySelectorAll("button, input[type=submit]")).slice(0, 10).map((el) => (el as HTMLElement).innerText?.trim() || (el as HTMLInputElement).value || el.getAttribute("aria-label") || "");
+          return { formCount: forms.length, allFormCount: allForms.length, firstFormAction: allForms[0]?.getAttribute("action") ?? null, buttonTexts: buttons };
+        }, formSelector).catch(() => ({ formCount: -1, allFormCount: -1, firstFormAction: null, buttonTexts: [] as string[] }));
+        // #region agent log
+        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:form catch", message: "form wait or submit failed", data: { formErrMsg, formSelector, ...diag }, timestamp: Date.now(), hypothesisId: "H1-H2-H5" }) }).catch(() => {});
+        // #endregion
+        for (const btnText of ["Share my details", "Confirm", "Accept", "Yes", "Submit"]) {
           try {
             const btn = page.getByRole("button", { name: new RegExp(btnText, "i") }).first();
             await btn.waitFor({ state: "visible", timeout: 2_000 });
             await btn.click({ force: true });
             confirmed = true;
+            // #region agent log
+            fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:fallback button", message: "fallback button clicked", data: { btnText }, timestamp: Date.now(), hypothesisId: "H3" }) }).catch(() => {});
+            // #endregion
             break;
           } catch {
+            // #region agent log
+            fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:fallback button try", message: "button not found", data: { btnText }, timestamp: Date.now(), hypothesisId: "H3" }) }).catch(() => {});
+            // #endregion
             continue;
           }
         }
       }
       if (!confirmed) {
+        // #region agent log
+        const finalDiag = await page.evaluate((sel: string) => {
+          const forms = document.querySelectorAll(sel);
+          const allForms = document.querySelectorAll("form");
+          const buttons = Array.from(document.querySelectorAll("button, input[type=submit]")).slice(0, 12).map((el) => (el as HTMLElement).innerText?.trim() || (el as HTMLInputElement).value || el.getAttribute("aria-label") || el.tagName);
+          return { formCount: forms.length, allFormCount: allForms.length, formActions: Array.from(allForms).map((f) => f.getAttribute("action")), buttonTexts: buttons };
+        }, formSelector).catch(() => ({}));
+        fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "da563a" }, body: JSON.stringify({ sessionId: "da563a", location: "hipages-action.ts:confirm_on_page error return", message: "confirm failed summary", data: { currentUrl, formSelector, ...finalDiag }, timestamp: Date.now(), hypothesisId: "all" }) }).catch(() => {});
+        // #endregion
         await browser.close();
         return {
           ok: false,
@@ -229,8 +260,12 @@ export async function performHipagesAction(
 
     await browser.close();
 
-    if (ok && action === "accept" && typeof leadId === "string" && leadId.trim()) {
-      await updateActivityFieldsAdmin(leadId.trim(), { platformAccepted: true }).catch(() => {});
+    if (ok && typeof leadId === "string" && leadId.trim()) {
+      const id = leadId.trim();
+      if (action === "accept") {
+        await updateActivityFieldsAdmin(id, { platformAccepted: true }).catch(() => {});
+      }
+      await updateActivityAdmin(id, { hipagesActions: {} }).catch(() => {});
     }
 
     return ok ? { ok: true, finalUrl } : { ok: false, error: "Action may not have completed; check hipages.", step: "confirm_submit" };

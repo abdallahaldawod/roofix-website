@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
-import { performHipagesAction } from "@/lib/leads/hipages-action";
 
 /**
  * POST: perform an accept / decline / waitlist action on a hipages lead
@@ -38,6 +37,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "action must be accept, decline, or waitlist" }, { status: 400 });
   }
 
+  const { performHipagesAction } = await import("@/lib/leads/hipages-action");
   const result = await performHipagesAction({
     sourceId: sourceId.trim(),
     actionPath,

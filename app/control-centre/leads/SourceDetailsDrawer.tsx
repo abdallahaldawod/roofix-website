@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import {
   X,
   Link2,
-  Search,
   Pencil,
   Pause,
   Trash2,
@@ -13,6 +12,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  ScanText,
 } from "lucide-react";
 import type { LeadSource, ScanRun } from "@/lib/leads/types";
 import { StatusBadge, ModeBadge, AuthStatusBadge, ScanStatusBadge } from "./Badge";
@@ -50,12 +50,13 @@ type SourceDetailsDrawerProps = {
   onEdit: (id: string) => void;
   onPause: (id: string) => void;
   onConnect: (id: string) => void;
-  onScanNow: (id: string) => void;
+  /** Run Analyze Page for this source (connected only). */
+  onAnalyzePage?: (id: string) => void;
   onDelete?: (id: string) => void;
   /** Fetch recent scan runs for diagnostics. */
   onFetchScanRuns?: (sourceId: string) => Promise<ScanRun[]>;
   connectingSourceId: string | null;
-  scanningSourceId: string | null;
+  analyzingSourceId: string | null;
   /** Base path for links, e.g. /control-centre */
   basePath: string;
 };
@@ -66,11 +67,11 @@ export function SourceDetailsDrawer({
   onEdit,
   onPause,
   onConnect,
-  onScanNow,
+  onAnalyzePage,
   onDelete,
   onFetchScanRuns,
   connectingSourceId,
-  scanningSourceId,
+  analyzingSourceId,
   basePath,
 }: SourceDetailsDrawerProps) {
   const [scanRuns, setScanRuns] = useState<ScanRun[]>([]);
@@ -89,7 +90,8 @@ export function SourceDetailsDrawer({
   if (!source) return null;
 
   const isConnecting = connectingSourceId === source.id;
-  const isScanning = scanningSourceId === source.id;
+  const isScanning = false;
+  const isAnalyzing = analyzingSourceId === source.id;
   const debug = source.lastScanDebug;
   const needsReconnect =
     source.authStatus === "needs_reconnect" || source.lastScanStatus === "needs_reconnect";
@@ -210,15 +212,21 @@ export function SourceDetailsDrawer({
                   lastScanStatus={source.lastScanStatus}
                   lastScanError={source.lastScanError}
                   isScanning={isScanning}
+                  lastScanFailedImport={source.lastScanFailedImport}
+                  lastScanFailedExtraction={source.lastScanFailedExtraction}
                 />
                 {source.lastScanAt && !isScanning && (
                   <span className="text-xs text-neutral-500">
                     {formatTime(source.lastScanAt)}
+                    {source.lastScanDurationMs != null && source.lastScanDurationMs > 0 && (
+                      <> · {(source.lastScanDurationMs / 1000).toFixed(1)}s</>
+                    )}
                   </span>
                 )}
               </div>
               {source.lastScanError &&
-                source.lastScanStatus === "failed" &&
+                (source.lastScanStatus === "failed" ||
+                  source.lastScanStatus === "needs_reconnect") &&
                 !isScanning && (
                   <p
                     className="mt-2 flex items-start gap-2 text-xs text-red-700"
@@ -278,8 +286,7 @@ export function SourceDetailsDrawer({
                 </dl>
               )}
               <div className="mt-3 flex gap-4 text-xs text-neutral-600">
-                <span>Today: {source.scannedToday} scanned</span>
-                <span>{source.matchedToday} matched</span>
+                <span>Today: {source.matchedToday} new lead{source.matchedToday === 1 ? "" : "s"}</span>
               </div>
             </div>
           </section>
@@ -467,19 +474,23 @@ export function SourceDetailsDrawer({
                   {showReconnect ? "Reconnect" : "Connect"}
                 </button>
                 {canScan && (
-                  <button
-                    type="button"
-                    disabled={isScanning}
-                    onClick={() => onScanNow(source.id)}
-                    className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-60"
-                  >
-                    {isScanning ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Search className="h-4 w-4" />
+                  <>
+                    {onAnalyzePage && (
+                      <button
+                        type="button"
+                        disabled={isAnalyzing || isScanning}
+                        onClick={() => onAnalyzePage(source.id)}
+                        className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+                      >
+                        {isAnalyzing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ScanText className="h-4 w-4" />
+                        )}
+                        Analyze Page
+                      </button>
                     )}
-                    Scan Now
-                  </button>
+                  </>
                 )}
               </>
             )}

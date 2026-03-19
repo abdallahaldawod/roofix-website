@@ -77,7 +77,7 @@ export default function LeadManagementPage() {
       <div className="mb-4">
         <Link
           href={(base || "/control-centre") + "/leads"}
-          className="inline-flex items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
+          className="inline-flex min-h-[44px] items-center gap-1.5 text-sm text-neutral-600 hover:text-neutral-900"
         >
           <ChevronLeft className="h-4 w-4" />
           Back to Leads

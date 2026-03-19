@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Search, Eye, Loader2, AlertCircle, Settings, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import { useControlCentreBase } from "../use-base-path";
@@ -10,12 +10,6 @@ import { subscribeToActivity, deleteActivity, deleteActivities } from "@/lib/lea
 import { getSources } from "@/lib/leads/sources";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import type { LeadActivity, LeadDecision, LeadActivityStatus } from "@/lib/leads/types";
-
-const AUTO_SCAN_INTERVAL_MS = 10 * 1000;
-const AUTO_SCAN_INITIAL_DELAY_MS = 15 * 1000;
-/** How often to sync Accepted leads with hipages jobs list when viewing that tab */
-const ACCEPTED_LEADS_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-const ACCEPTED_LEADS_SYNC_INITIAL_DELAY_MS = 3 * 1000;
 
 const DECISION_STYLES: Record<LeadDecision, string> = {
   Accept: "bg-emerald-50 text-emerald-800",
@@ -133,10 +127,11 @@ function suburbPostcode(lead: LeadActivity): string {
   return parts.join(" / ") || "—";
 }
 
-/** Parse leadCost to a number for sorting (e.g. "$12.50" → 12.5, "30 credits" → 30). Missing/invalid → null. */
+/** Parse leadCost to a number for sorting (e.g. "$12.50" → 12.5, "30 credits" → 30, "Free" → 0). Missing/invalid → null. */
 function parseLeadCostToNumber(leadCost: string | undefined): number | null {
   if (!leadCost || typeof leadCost !== "string") return null;
   const t = leadCost.trim();
+  if (/^free$/i.test(t)) return 0;
   const dollar = /^\$(\d+(?:\.\d+)?)$/.exec(t);
   if (dollar) return parseFloat(dollar[1]);
   const credits = /^(\d+(?:\.\d+)?)\s+credits?$/i.exec(t);
@@ -196,6 +191,11 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [acceptedSyncInProgress, setAcceptedSyncInProgress] = useState(false);
   const acceptedSyncInProgressRef = useRef(false);
+  const [hipagesCredit, setHipagesCredit] = useState<string | null>(null);
+  const [hipagesCreditLoading, setHipagesCreditLoading] = useState(false);
+  const [hipagesCreditError, setHipagesCreditError] = useState<string | null>(null);
+  const [scanNewInProgress, setScanNewInProgress] = useState(false);
+  const [scanNewError, setScanNewError] = useState<string | null>(null);
 
   type SortBy = "cost" | "posted";
   const [sortBy, setSortBy] = useState<SortBy>("posted");
@@ -206,15 +206,30 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     if (sourceFromUrl) setFilterSource(decodeURIComponent(sourceFromUrl));
   }, [sourceFromUrl]);
 
-  // Realtime subscription: table updates on any add/update/delete in lead_activity.
+  // Realtime subscription: table updates on any add/update/delete in lead_activity (e.g. after each local scan).
+  const previousLeadCountRef = useRef<number>(0);
+  const [newLeadsBanner, setNewLeadsBanner] = useState<number | null>(null);
   useEffect(() => {
     setLoading(true);
     setError(null);
+    previousLeadCountRef.current = 0;
     const unsubscribe = subscribeToActivity(
       (data) => {
+        const prevCount = previousLeadCountRef.current;
+        previousLeadCountRef.current = data.length;
         setLeads(data);
         setLastLeadsUpdateAt(Date.now());
         setLoading(false);
+        if (prevCount > 0 && data.length > prevCount) {
+          const added = data.length - prevCount;
+          setNewLeadsBanner(added);
+        }
+        // #region agent log
+        const noCostHipages = data.filter((l) => !l.leadCost && (l.sourceName?.toLowerCase().includes("hipages") ?? false));
+        if (noCostHipages.length > 0) {
+          fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a5692" }, body: JSON.stringify({ sessionId: "7a5692", location: "LeadsPageClient.tsx:subscribe", message: "leads_without_cost_hipages", data: { activityIds: noCostHipages.slice(0, 15).map((l) => l.id), count: noCostHipages.length }, timestamp: Date.now(), hypothesisId: "A" }) }).catch(() => {});
+        }
+        // #endregion
       },
       (err) => {
         setError(err.message);
@@ -225,48 +240,10 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   }, [retryCount]);
 
   useEffect(() => {
-    let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const runScans = async () => {
-      const auth = getFirebaseAuth();
-      const token = await auth.currentUser?.getIdToken();
-      if (!token || cancelled) return;
-      const sources = await getSources();
-      const scannable = sources.filter(
-        (s) =>
-          !s.isSystem &&
-          s.storageStatePath &&
-          (s.status === "Active" || s.authStatus === "connected")
-      );
-      await Promise.all(
-        scannable.map((source) =>
-          fetch("/api/control-centre/leads/scan", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ sourceId: source.id }),
-          }).catch(() => {})
-        )
-      );
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      if (cancelled) return;
-      runScans().then(() => {
-        if (cancelled) return;
-        intervalId = setInterval(runScans, AUTO_SCAN_INTERVAL_MS);
-      });
-    }, AUTO_SCAN_INITIAL_DELAY_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, []);
+    if (newLeadsBanner === null) return;
+    const t = setTimeout(() => setNewLeadsBanner(null), 5000);
+    return () => clearTimeout(t);
+  }, [newLeadsBanner]);
 
   const getToken = useCallback(async (): Promise<string> => {
     const auth = getFirebaseAuth();
@@ -275,9 +252,40 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     return token;
   }, []);
 
-  // Update "Last synced" / "Last updated" every minute so "X min ago" stays current
+  // Fetch hipages credit once on mount (business.hipages.com.au)
   useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 60_000);
+    let cancelled = false;
+    (async () => {
+      setHipagesCreditLoading(true);
+      setHipagesCreditError(null);
+      try {
+        const token = await getToken();
+        const res = await fetch("/api/control-centre/leads/hipages-credit", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (data.ok === true && typeof data.credit === "string") {
+          setHipagesCredit(data.credit);
+        } else {
+          setHipagesCredit(null);
+          setHipagesCreditError(typeof data.error === "string" ? data.error : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setHipagesCredit(null);
+          setHipagesCreditError("Failed to load");
+        }
+      } finally {
+        if (!cancelled) setHipagesCreditLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getToken]);
+
+  // Update "Last updated Xs ago" every 2s when recent, so the status line stays current
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 2_000);
     return () => clearInterval(id);
   }, []);
 
@@ -312,16 +320,42 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     }
   }, [getToken]);
 
-  // Auto-sync Accepted leads with hipages jobs list (runs regardless of tab so both tables stay in sync)
-  useEffect(() => {
-    const initialTimeoutId = window.setTimeout(runAcceptedSync, ACCEPTED_LEADS_SYNC_INITIAL_DELAY_MS);
-    const intervalId = setInterval(runAcceptedSync, ACCEPTED_LEADS_SYNC_INTERVAL_MS);
-
-    return () => {
-      window.clearTimeout(initialTimeoutId);
-      clearInterval(intervalId);
-    };
-  }, [runAcceptedSync]);
+  /** Run background scan for Hipages source(s) to pull new leads into the table. */
+  const runScanNewLeads = useCallback(async () => {
+    setScanNewError(null);
+    setScanNewInProgress(true);
+    try {
+      const sources = await getSources();
+      const hipages = sources.filter(
+        (s) => s.storageStatePath && s.name.toLowerCase().includes("hipages")
+      );
+      if (hipages.length === 0) {
+        setScanNewError("No connected Hipages source. Connect a source in Lead Management.");
+        return;
+      }
+      const token = await getToken();
+      for (const source of hipages) {
+        const res = await fetch("/api/control-centre/leads/scan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ sourceId: source.id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          setScanNewError(data?.error ?? "Scan failed");
+          return;
+        }
+      }
+      setLastLeadsUpdateAt(Date.now());
+    } catch (e) {
+      setScanNewError(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setScanNewInProgress(false);
+    }
+  }, [getToken]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead? This cannot be undone.")) return;
@@ -335,54 +369,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       setDeletingId(null);
     }
   }, [getToken]);
-
-  const handleHipagesAction = useCallback(
-    async (lead: LeadActivity, action: "accept" | "decline" | "waitlist", actionPath: string) => {
-      if (hipagesActingId) return;
-      setHipagesActingId(`${lead.id}-${action}`);
-      setHipagesActionError((prev) => ({ ...prev, [lead.id]: "" }));
-      try {
-        const token = await getToken();
-        const res = await fetch("/api/control-centre/leads/hipages-action", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ sourceId: lead.sourceId, actionPath, action, leadId: lead.id }),
-        });
-        const data = await res.json();
-        const ok = data.ok === true;
-        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: ok ? "ok" : "error" }));
-        if (!ok) {
-          const errMsg = typeof data.error === "string" ? data.error : "Action failed";
-          const step = typeof data.step === "string" ? data.step : "";
-          setHipagesActionError((prev) => ({ ...prev, [lead.id]: step ? `${errMsg} (${step})` : errMsg }));
-        }
-      } catch (e) {
-        const errMsg = e instanceof Error ? e.message : "Request failed";
-        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: "error" }));
-        setHipagesActionError((prev) => ({ ...prev, [lead.id]: errMsg }));
-      } finally {
-        setHipagesActingId(null);
-      }
-    },
-    [hipagesActingId, getToken]
-  );
-
-  const handleBulkDelete = useCallback(async () => {
-    if (checkedIds.size === 0) return;
-    if (!confirm(`Delete ${checkedIds.size} lead${checkedIds.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
-    setBulkDeleting(true);
-    try {
-      const token = await getToken();
-      await deleteActivities([...checkedIds], token);
-      setLeads((prev) => prev.filter((l) => !checkedIds.has(l.id)));
-      setCheckedIds(new Set());
-    } finally {
-      setBulkDeleting(false);
-    }
-  }, [checkedIds, getToken]);
 
   const handleFetchCustomer = useCallback(
     async (leadId: string, sourceId: string): Promise<{ ok: boolean; error?: string; _debug?: Record<string, unknown> }> => {
@@ -406,6 +392,57 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
     [getToken]
   );
 
+  const handleHipagesAction = useCallback(
+    async (lead: LeadActivity, action: "accept" | "decline" | "waitlist", actionPath: string) => {
+      if (hipagesActingId) return;
+      setHipagesActingId(`${lead.id}-${action}`);
+      setHipagesActionError((prev) => ({ ...prev, [lead.id]: "" }));
+      try {
+        const token = await getToken();
+        const res = await fetch("/api/control-centre/leads/hipages-action", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ sourceId: lead.sourceId, actionPath, action, leadId: lead.id }),
+        });
+        const data = await res.json();
+        const ok = data.ok === true;
+        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: ok ? "ok" : "error" }));
+        if (!ok) {
+          const errMsg = typeof data.error === "string" ? data.error : "Action failed";
+          const step = typeof data.step === "string" ? data.step : "";
+          setHipagesActionError((prev) => ({ ...prev, [lead.id]: step ? `${errMsg} (${step})` : errMsg }));
+        } else {
+          handleFetchCustomer(lead.id, lead.sourceId).catch(() => {});
+          if (action === "accept") runAcceptedSync().catch(() => {});
+        }
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : "Request failed";
+        setHipagesActionResult((prev) => ({ ...prev, [lead.id]: "error" }));
+        setHipagesActionError((prev) => ({ ...prev, [lead.id]: errMsg }));
+      } finally {
+        setHipagesActingId(null);
+      }
+    },
+    [hipagesActingId, getToken, handleFetchCustomer, runAcceptedSync]
+  );
+
+  const handleBulkDelete = useCallback(async () => {
+    if (checkedIds.size === 0) return;
+    if (!confirm(`Delete ${checkedIds.size} lead${checkedIds.size === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const token = await getToken();
+      await deleteActivities([...checkedIds], token);
+      setLeads((prev) => prev.filter((l) => !checkedIds.has(l.id)));
+      setCheckedIds(new Set());
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [checkedIds, getToken]);
+
   const selectedLead = selectedLeadId ? (leads.find((l) => l.id === selectedLeadId) ?? null) : null;
 
   const totalToday = leads.length;
@@ -414,52 +451,59 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const review = leads.filter((l) => l.decision === "Review").length;
   const failed = leads.filter((l) => l.status === "Failed").length;
 
-  const leadsForView =
-    leadsTableView === "accepted"
-      ? leads.filter((l) => l.platformAccepted === true)
-      : leads.filter((l) => l.platformAccepted !== true);
+  const leadsForView = useMemo(
+    () =>
+      leadsTableView === "accepted"
+        ? leads.filter((l) => l.platformAccepted === true)
+        : leads.filter((l) => l.platformAccepted !== true),
+    [leads, leadsTableView]
+  );
 
-  const filtered = leadsForView.filter((lead) => {
-    if (filterSource && lead.sourceName !== filterSource) return false;
-    if (filterDecision && lead.decision !== filterDecision) return false;
-    if (filterStatus && lead.status !== filterStatus) return false;
-    if (filterDate) {
-      const leadDate = lead.scannedAt
-        ? new Date(lead.scannedAt.seconds * 1000).toISOString().slice(0, 10)
-        : "";
-      if (leadDate !== filterDate) return false;
-    }
-    if (filterSearch) {
-      const q = filterSearch.toLowerCase();
-      if (
-        !lead.title.toLowerCase().includes(q) &&
-        !(lead.description ?? "").toLowerCase().includes(q) &&
-        !lead.suburb.toLowerCase().includes(q) &&
-        !lead.sourceName.toLowerCase().includes(q) &&
-        !(lead.postcode ?? "").toLowerCase().includes(q) &&
-        !(lead.customerName ?? "").toLowerCase().includes(q) &&
-        !(lead.email ?? "").toLowerCase().includes(q) &&
-        !(lead.phone ?? "").toLowerCase().includes(q)
-      )
-        return false;
-    }
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return leadsForView.filter((lead) => {
+      if (filterSource && lead.sourceName !== filterSource) return false;
+      if (filterDecision && lead.decision !== filterDecision) return false;
+      if (filterStatus && lead.status !== filterStatus) return false;
+      if (filterDate) {
+        const leadDate = lead.scannedAt
+          ? new Date(lead.scannedAt.seconds * 1000).toISOString().slice(0, 10)
+          : "";
+        if (leadDate !== filterDate) return false;
+      }
+      if (filterSearch) {
+        const q = filterSearch.toLowerCase();
+        if (
+          !lead.title.toLowerCase().includes(q) &&
+          !(lead.description ?? "").toLowerCase().includes(q) &&
+          !lead.suburb.toLowerCase().includes(q) &&
+          !lead.sourceName.toLowerCase().includes(q) &&
+          !(lead.postcode ?? "").toLowerCase().includes(q) &&
+          !(lead.customerName ?? "").toLowerCase().includes(q) &&
+          !(lead.email ?? "").toLowerCase().includes(q) &&
+          !(lead.phone ?? "").toLowerCase().includes(q)
+        )
+          return false;
+      }
+      return true;
+    });
+  }, [leadsForView, filterSource, filterDecision, filterStatus, filterDate, filterSearch]);
 
   const statusOrder: Record<string, number> = { Processed: 0, Scanned: 1, Failed: 2 };
-  const sorted = [...filtered].sort((a, b) => {
-    const statusA = statusOrder[a.status] ?? 3;
-    const statusB = statusOrder[b.status] ?? 3;
-    if (statusA !== statusB) return statusA - statusB;
-    if (sortBy === "cost") {
-      const na = parseLeadCostToNumber(a.leadCost) ?? Infinity;
-      const nb = parseLeadCostToNumber(b.leadCost) ?? Infinity;
-      return sortDir === "asc" ? na - nb : nb - na;
-    }
-    const ma = getPostedTimeMs(a);
-    const mb = getPostedTimeMs(b);
-    return sortDir === "asc" ? ma - mb : mb - ma;
-  });
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const statusA = statusOrder[a.status] ?? 3;
+      const statusB = statusOrder[b.status] ?? 3;
+      if (statusA !== statusB) return statusA - statusB;
+      if (sortBy === "cost") {
+        const na = parseLeadCostToNumber(a.leadCost) ?? Infinity;
+        const nb = parseLeadCostToNumber(b.leadCost) ?? Infinity;
+        return sortDir === "asc" ? na - nb : nb - na;
+      }
+      const ma = getPostedTimeMs(a);
+      const mb = getPostedTimeMs(b);
+      return sortDir === "asc" ? ma - mb : mb - ma;
+    });
+  }, [filtered, sortBy, sortDir]);
 
   const handleSortCost = () => {
     if (sortBy === "cost") setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -502,7 +546,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
 
   const uniqueSources = Array.from(new Set(leads.map((l) => l.sourceName)));
   const selectClass =
-    "rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400";
+    "min-h-[44px] rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400";
 
   if (loading) {
     return (
@@ -627,7 +671,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                 value={filterSearch}
                 onChange={(e) => setFilterSearch(e.target.value)}
                 placeholder="Search leads..."
-                className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                className="min-h-[44px] w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm text-neutral-900 focus:border-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
               />
             </div>
           </div>
@@ -640,7 +684,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           <button
             type="button"
             onClick={() => setLeadsTableView("new")}
-            className={`min-h-[40px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
+            className={`min-h-[44px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
               leadsTableView === "new"
                 ? "bg-white text-neutral-900 shadow-sm"
                 : "text-neutral-600 hover:text-neutral-900"
@@ -651,7 +695,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           <button
             type="button"
             onClick={() => setLeadsTableView("accepted")}
-            className={`min-h-[40px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
+            className={`min-h-[44px] flex-1 rounded-md px-4 text-sm font-medium transition-colors sm:flex-none sm:px-6 ${
               leadsTableView === "accepted"
                 ? "bg-white text-neutral-900 shadow-sm"
                 : "text-neutral-600 hover:text-neutral-900"
@@ -661,6 +705,26 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+          <div
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50/80 px-3 py-1.5 text-xs"
+            aria-hidden="true"
+          >
+            <span className="font-medium text-neutral-500">HiPages</span>
+            {hipagesCreditLoading ? (
+              <span className="inline-flex items-center gap-1.5 font-semibold tabular-nums text-neutral-700">
+                <Loader2 className="h-3 w-3 animate-spin shrink-0" aria-hidden />
+                …
+              </span>
+            ) : hipagesCreditError ? (
+              <span className="font-semibold tabular-nums text-neutral-400" title={hipagesCreditError}>
+                —
+              </span>
+            ) : hipagesCredit ? (
+              <span className="font-semibold tabular-nums text-neutral-900">{hipagesCredit}</span>
+            ) : (
+              <span className="font-semibold tabular-nums text-neutral-400">—</span>
+            )}
+          </div>
           {leadsTableView === "accepted" && (
             <button
               type="button"
@@ -675,11 +739,25 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               Sync now
             </button>
           )}
+          {scanNewError && (
+            <span className="text-xs text-red-600" title={scanNewError}>
+              {scanNewError.length > 40 ? `${scanNewError.slice(0, 40)}…` : scanNewError}
+            </span>
+          )}
+          {scanNewInProgress && (
+            <span className="text-xs font-medium text-neutral-600">Scanning…</span>
+          )}
+          {newLeadsBanner != null && newLeadsBanner > 0 && (
+            <span className="text-xs font-medium text-emerald-600">
+              {newLeadsBanner === 1 ? "1 new lead imported" : `${newLeadsBanner} new leads imported`}
+            </span>
+          )}
           <span className="text-xs text-neutral-500" aria-hidden="true">
             {lastLeadsUpdateAt
               ? (() => {
-                  const mins = Math.floor((Date.now() - lastLeadsUpdateAt) / 60_000);
-                  if (mins < 1) return "Last updated just now";
+                  const secs = Math.floor((Date.now() - lastLeadsUpdateAt) / 1000);
+                  if (secs < 60) return secs <= 5 ? "Last updated just now" : `Last updated ${secs}s ago`;
+                  const mins = Math.floor(secs / 60);
                   if (mins === 1) return "Last updated 1 min ago";
                   return `Last updated ${mins} min ago`;
                 })()
@@ -702,14 +780,26 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
             <>
               <p className="text-center text-base font-medium text-neutral-900">No leads yet</p>
               <p className="mt-2 max-w-sm text-center text-sm text-neutral-600">
-                Leads will appear here when you run a test scan or connect live sources. Configure sources and rule sets in Lead Management.
+                New leads from Hipages appear here after you run a scan. Use <strong>Scan now</strong> above, or run a scan from Lead Management.
               </p>
-              <Link
-                href={(base || "/control-centre") + "/leads/management"}
-                className="mt-4 inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
-              >
-                Open Lead Management
-              </Link>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={runScanNewLeads}
+                  disabled={scanNewInProgress}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {scanNewInProgress ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Scan now
+                </button>
+                <Link
+                  href={(base || "/control-centre") + "/leads/management"}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                >
+                  <Settings className="h-4 w-4" />
+                  Lead Management
+                </Link>
+              </div>
             </>
           ) : (
             <>
@@ -745,7 +835,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                 type="button"
                 disabled={bulkDeleting}
                 onClick={handleBulkDelete}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
                 {bulkDeleting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -756,7 +846,111 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               </button>
             </div>
           )}
-          <div className="overflow-x-auto">
+          {/* Mobile: card list */}
+          <div className="space-y-3 p-4 md:hidden">
+            {sorted.map((lead) => (
+              <div
+                key={lead.id}
+                className={`rounded-xl border p-4 ${checkedIds.has(lead.id) ? "border-neutral-300 bg-neutral-50" : "border-neutral-200 bg-white"}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center pt-0.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select lead ${lead.customerName || lead.sourceName || lead.id}`}
+                      checked={checkedIds.has(lead.id)}
+                      onChange={() => toggleOne(lead.id)}
+                      className="h-5 w-5 cursor-pointer rounded border-neutral-300 accent-neutral-900"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DecisionBadge decision={lead.decision} />
+                      <ActivityStatusBadge status={lead.status} />
+                    </div>
+                    <p className="mt-1.5 font-medium text-neutral-900">
+                      {lead.customerName || lead.email || lead.phone || lead.sourceName || "—"}
+                    </p>
+                    {lead.customerName && (lead.email || lead.phone) && (
+                      <p className="mt-0.5 text-sm text-neutral-600">
+                        {[lead.email, lead.phone].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-neutral-500">
+                      {lead.sourceName} · {suburbPostcode(lead)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-neutral-500">
+                      Score {lead.score} · {lead.leadCost ?? "—"} · {formatReceivedDate(lead)}
+                    </p>
+                    {lead.reasons?.length ? (
+                      <p className="mt-1 truncate text-xs text-neutral-600">{formatReasons(lead.reasons)}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-100 pt-3">
+                  {leadsTableView === "new" &&
+                    lead.sourceName?.toLowerCase().includes("hipages") &&
+                    (lead.hipagesActions?.accept || lead.hipagesActions?.decline || lead.hipagesActions?.waitlist) && (
+                      <>
+                        {lead.hipagesActions.accept && (
+                          <button
+                            type="button"
+                            disabled={!!hipagesActingId}
+                            onClick={() => handleHipagesAction(lead, "accept", lead.hipagesActions!.accept!)}
+                            className="min-h-[44px] min-w-[44px] rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                          >
+                            {hipagesActingId === `${lead.id}-accept` ? <Loader2 className="h-4 w-4 animate-spin" /> : "Accept"}
+                          </button>
+                        )}
+                        {lead.hipagesActions.decline && (
+                          <button
+                            type="button"
+                            disabled={!!hipagesActingId}
+                            onClick={() => handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)}
+                            className="min-h-[44px] min-w-[44px] rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                          >
+                            {hipagesActingId === `${lead.id}-decline` ? <Loader2 className="h-4 w-4 animate-spin" /> : "Decline"}
+                          </button>
+                        )}
+                        {lead.hipagesActions.waitlist && (
+                          <button
+                            type="button"
+                            disabled={!!hipagesActingId}
+                            onClick={() => handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)}
+                            className="min-h-[44px] min-w-[44px] rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+                          >
+                            {hipagesActingId === `${lead.id}-waitlist` ? <Loader2 className="h-4 w-4 animate-spin" /> : "Waitlist"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  <button
+                    type="button"
+                    aria-label="View lead details"
+                    onClick={() => setSelectedLeadId(lead.id)}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                  >
+                    <Eye className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete lead"
+                    disabled={deletingId === lead.id}
+                    onClick={() => handleDelete(lead.id)}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-neutral-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                  >
+                    {deletingId === lead.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Desktop: table */}
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full divide-y divide-neutral-100">
               <thead className="bg-neutral-50/80">
                 <tr>
@@ -805,12 +999,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     </button>
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
-                    Decision
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
-                    Status
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
                     <button
                       type="button"
                       onClick={handleSortPosted}
@@ -833,9 +1021,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
                     Reasons
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-left">
-                    Platform Action
                   </th>
                   <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 text-right">
                     Actions
@@ -904,14 +1089,19 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-700">
                       {lead.score}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums font-medium text-neutral-900">
+                    <td
+                      className="whitespace-nowrap px-4 py-3 tabular-nums font-medium text-neutral-900"
+                      title={
+                        lead.leadCost
+                          ? undefined
+                          : lead.sourceName?.toLowerCase().includes("hipages")
+                            ? lead.platformAccepted
+                              ? "Cost not found when syncing. Run Sync now on Accepted leads to re-fetch job details."
+                              : "Cost not found. Use Fetch on the customer cell to refresh from the job page."
+                            : undefined
+                      }
+                    >
                       {lead.leadCost ?? <span className="text-neutral-400">—</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <DecisionBadge decision={lead.decision} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <ActivityStatusBadge status={lead.status} />
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
                       {formatReceivedDate(lead)}
@@ -919,61 +1109,63 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                     <td className="max-w-[180px] truncate px-4 py-3 text-xs text-neutral-600">
                       {formatReasons(lead.reasons)}
                     </td>
-                    {/* Hipages platform actions */}
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {lead.hipagesActions && Object.keys(lead.hipagesActions).length > 0 ? (
-                        hipagesActionResult[lead.id] === "ok" ? (
-                          <span className="text-xs font-medium text-emerald-600">✓ Done</span>
-                        ) : hipagesActionResult[lead.id] === "error" ? (
-                          <span
-                            className="max-w-[200px] truncate block text-xs font-medium text-red-500"
-                            title={hipagesActionError[lead.id] || "Failed"}
-                          >
-                            {hipagesActionError[lead.id] || "Failed"}
-                          </span>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-1">
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+                        {/* Platform actions: only for new leads (hipages) with action paths */}
+                        {leadsTableView === "new" &&
+                          lead.sourceName?.toLowerCase().includes("hipages") &&
+                          (lead.hipagesActions?.accept || lead.hipagesActions?.decline || lead.hipagesActions?.waitlist) && (
+                          <>
                             {lead.hipagesActions.accept && (
                               <button
                                 type="button"
                                 disabled={!!hipagesActingId}
-                                onClick={() => handleHipagesAction(lead, "accept", lead.hipagesActions!.accept!)}
-                                className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                                onClick={() =>
+                                  handleHipagesAction(lead, "accept", lead.hipagesActions!.accept!)
+                                }
+                                className="inline-flex h-9 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                               >
-                                {hipagesActingId === `${lead.id}-accept` ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                {lead.hipagesActions.acceptLabel ?? "Accept"}
-                              </button>
-                            )}
-                            {lead.hipagesActions.waitlist && (
-                              <button
-                                type="button"
-                                disabled={!!hipagesActingId}
-                                onClick={() => handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)}
-                                className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                              >
-                                {hipagesActingId === `${lead.id}-waitlist` ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                {lead.hipagesActions.waitlistLabel ?? "Waitlist"}
+                                {hipagesActingId === `${lead.id}-accept` ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Accept"
+                                )}
                               </button>
                             )}
                             {lead.hipagesActions.decline && (
                               <button
                                 type="button"
                                 disabled={!!hipagesActingId}
-                                onClick={() => handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)}
-                                className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                onClick={() =>
+                                  handleHipagesAction(lead, "decline", lead.hipagesActions!.decline!)
+                                }
+                                className="inline-flex h-9 items-center rounded-lg border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
                               >
-                                {hipagesActingId === `${lead.id}-decline` ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                {lead.hipagesActions.declineLabel ?? "Decline"}
+                                {hipagesActingId === `${lead.id}-decline` ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Decline"
+                                )}
                               </button>
                             )}
-                          </div>
-                        )
-                      ) : (
-                        <span className="text-xs text-neutral-400">—</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right">
-                      <div className="ml-auto flex items-center justify-end gap-1">
+                            {lead.hipagesActions.waitlist && (
+                              <button
+                                type="button"
+                                disabled={!!hipagesActingId}
+                                onClick={() =>
+                                  handleHipagesAction(lead, "waitlist", lead.hipagesActions!.waitlist!)
+                                }
+                                className="inline-flex h-9 items-center rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+                              >
+                                {hipagesActingId === `${lead.id}-waitlist` ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Waitlist"
+                                )}
+                              </button>
+                            )}
+                          </>
+                        )}
                         <button
                           type="button"
                           aria-label="View lead details"

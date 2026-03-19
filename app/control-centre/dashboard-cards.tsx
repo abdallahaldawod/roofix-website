@@ -69,7 +69,7 @@ export function DashboardCards() {
               <Link
                 key={card.path}
                 href={href}
-                className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
+                className="group flex min-h-[44px] flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent transition-colors group-hover:bg-accent/25">
                   <card.icon className="h-5 w-5" />
@@ -94,7 +94,7 @@ export function DashboardCards() {
               <Link
                 key={card.path}
                 href={href}
-                className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
+                className="group flex min-h-[44px] flex-col rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition-all hover:border-neutral-300 hover:shadow-md"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent transition-colors group-hover:bg-accent/25">
                   <card.icon className="h-5 w-5" />

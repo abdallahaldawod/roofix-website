@@ -147,7 +147,7 @@ export function DateRangeDropdown({ startDate, endDate, onRangeChange }: Props) 
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex min-h-[40px] items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50 hover:border-neutral-300"
+        className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-sm transition-colors hover:bg-neutral-50 hover:border-neutral-300 sm:w-auto"
         aria-expanded={open}
         aria-haspopup="listbox"
       >
@@ -156,7 +156,7 @@ export function DateRangeDropdown({ startDate, endDate, onRangeChange }: Props) 
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-full min-w-[280px] max-w-[320px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-2 w-full min-w-[280px] max-w-[320px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg sm:right-0 sm:left-auto">
           <div className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Presets</p>
             <div className="grid grid-cols-3 gap-1">

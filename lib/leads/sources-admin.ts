@@ -54,6 +54,7 @@ function toLeadSource(id: string, d: DocData): LeadSource {
     lastScanImported: (d.lastScanImported as number | undefined) ?? undefined,
     lastScanFailedImport: (d.lastScanFailedImport as number | undefined) ?? undefined,
     lastScanDebug: (d.lastScanDebug as LastScanDebug | undefined) ?? undefined,
+    lastScanDurationMs: (d.lastScanDurationMs as number | undefined) ?? undefined,
     extractionDebug: (d.extractionDebug as boolean | undefined) ?? undefined,
   };
 }
@@ -188,7 +189,7 @@ export async function updateSourceAuthAdmin(
   return { ok: true };
 }
 
-/** Update only scan-result fields (lastScanAt, lastScanStatus, lastScanError, extraction and import counts, debug). */
+/** Update only scan-result fields (lastScanAt, lastScanStatus, lastScanError, extraction and import counts, debug, duration). */
 export type SourceScanResultUpdate = {
   lastScanAt?: ReturnType<typeof FieldValue.serverTimestamp>;
   lastScanStatus?: string;
@@ -199,6 +200,7 @@ export type SourceScanResultUpdate = {
   lastScanImported?: number;
   lastScanFailedImport?: number;
   lastScanDebug?: { pageUrl?: string; pageTitle?: string; leadCardCount?: number; snippet?: string } | null;
+  lastScanDurationMs?: number | null;
 };
 
 export async function updateSourceScanResultAdmin(
@@ -223,6 +225,24 @@ export async function updateSourceScanResultAdmin(
   if (update.lastScanFailedImport !== undefined)
     payload.lastScanFailedImport = update.lastScanFailedImport;
   if (update.lastScanDebug !== undefined) payload.lastScanDebug = update.lastScanDebug;
+  if (update.lastScanDurationMs !== undefined) payload.lastScanDurationMs = update.lastScanDurationMs;
   await db.collection(COLLECTION).doc(sourceId).update(payload);
+  return { ok: true };
+}
+
+/** Update only extraction config for a source (server-only). Used after Analyze Page. */
+export async function updateSourceExtractionConfigAdmin(
+  sourceId: string,
+  extractionConfig: SourceExtractionConfig
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const db = getAdminFirestore();
+  if (!db) return { ok: false, error: "Firestore not configured" };
+  const source = await getSourceByIdAdmin(sourceId);
+  if (!source) return { ok: false, error: "Source not found" };
+  if (source.isSystem) return { ok: false, error: "System sources cannot have extraction config updated" };
+  await db.collection(COLLECTION).doc(sourceId).update({
+    extractionConfig,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return { ok: true };
 }

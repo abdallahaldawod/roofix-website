@@ -119,6 +119,8 @@ export type LeadSource = {
   lastScanFailedImport?: number;
   /** Optional debug info from last scan (page URL, title, card count, snippet). */
   lastScanDebug?: LastScanDebug;
+  /** Duration of last scan in milliseconds, when available. */
+  lastScanDurationMs?: number | null;
   /** When true, capture extra extraction diagnostics (e.g. first-card snippet) for debugging. */
   extractionDebug?: boolean;
 };

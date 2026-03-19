@@ -73,6 +73,10 @@ export async function processScannedLead(
       ? lead.raw.leadCost
       : undefined;
 
+  // #region agent log
+  fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "d2b155" }, body: JSON.stringify({ sessionId: "d2b155", location: "process-scanned-lead.ts:processScannedLead", message: "process_leadCost", data: { rawLeadCost: lead.raw?.leadCost, rawLeadCostType: typeof lead.raw?.leadCost, leadCostOut: leadCost ?? null }, timestamp: Date.now(), hypothesisId: "H2-H3" }) }).catch(() => {});
+  // #endregion
+
   const hipagesActions =
     lead.raw?.hipagesActions && typeof lead.raw.hipagesActions === "object"
       ? (lead.raw.hipagesActions as { accept?: string; decline?: string; waitlist?: string })

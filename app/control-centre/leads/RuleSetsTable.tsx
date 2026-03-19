@@ -47,7 +47,54 @@ export function RuleSetsTable({ ruleSets, onSelect, onEdit, onCreate, onDelete }
         </button>
       </div>
       <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        {/* Mobile: card list */}
+        <div className="space-y-3 p-4 md:hidden">
+          {ruleSets.map((rs) => (
+            <div
+              key={rs.id}
+              className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-4"
+            >
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => onSelect(rs.id)}
+                  className="text-left font-medium text-neutral-900 hover:underline"
+                >
+                  {rs.name}
+                </button>
+                {rs.description ? (
+                  <p className="mt-0.5 line-clamp-2 text-sm text-neutral-600">{rs.description}</p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <RuleSetStatusBadge status={rs.status} />
+                  <span className="text-xs text-neutral-500">
+                    {rs.sourcesUsing} source{rs.sourcesUsing === 1 ? "" : "s"} · min score {rs.minScore}
+                  </span>
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  aria-label="Edit rule set"
+                  onClick={() => onEdit(rs.id)}
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                >
+                  <Pencil className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete rule set"
+                  onClick={() => onDelete(rs.id)}
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  <Trash2 className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Desktop: table */}
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full divide-y divide-neutral-100">
             <thead className="bg-neutral-50/80">
               <tr>
@@ -119,7 +166,7 @@ export function RuleSetsTable({ ruleSets, onSelect, onEdit, onCreate, onDelete }
                         type="button"
                         aria-label="Edit rule set"
                         onClick={() => onEdit(rs.id)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                        className="flex h-9 w-9 min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -127,7 +174,7 @@ export function RuleSetsTable({ ruleSets, onSelect, onEdit, onCreate, onDelete }
                         type="button"
                         aria-label="Delete rule set"
                         onClick={() => onDelete(rs.id)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 hover:bg-red-50 hover:text-red-700"
+                        className="flex h-9 w-9 min-w-[44px] items-center justify-center rounded-lg text-neutral-600 hover:bg-red-50 hover:text-red-700"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

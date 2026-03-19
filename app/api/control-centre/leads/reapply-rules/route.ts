@@ -6,7 +6,6 @@ import {
   getActivitiesBySourceIdAdmin,
   updateActivityRuleResultAdmin,
 } from "@/lib/leads/activity-admin";
-import { performHipagesAction } from "@/lib/leads/hipages-action";
 import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
 import type { LeadRuleSet, TriggerPlatformAction } from "@/lib/leads/types";
 
@@ -95,6 +94,7 @@ export async function POST(request: Request) {
         const actionPath = triggerAction && hipagesActions?.[triggerAction];
         if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
           try {
+            const { performHipagesAction } = await import("@/lib/leads/hipages-action");
             const actionResult = await performHipagesAction({
               sourceId: source.id,
               actionPath: actionPath.trim(),

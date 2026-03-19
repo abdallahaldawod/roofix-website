@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import { useControlCentreBase } from "./use-base-path";
+import { ControlCentreBottomNav } from "./ControlCentreBottomNav";
 import {
   LayoutDashboard,
   FolderOpen,
@@ -140,8 +141,8 @@ export default function DashboardLayout({
       >
         {navContent}
       </aside>
-      {/* Mobile top bar */}
-      <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-neutral-200 bg-white px-4 md:hidden">
+      {/* Mobile top bar: safe-area for notched devices */}
+      <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-neutral-200 bg-white px-4 pt-[env(safe-area-inset-top,0)] md:hidden">
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
@@ -152,8 +153,11 @@ export default function DashboardLayout({
         </button>
         <span className="font-semibold text-neutral-900">Control Centre</span>
       </div>
-      {/* Main content: add top padding on mobile for fixed header */}
-      <main className="min-w-0 flex-1 p-4 pt-[4.5rem] md:pt-8 md:p-8">{children}</main>
+      {/* Main content: top padding for fixed header (incl. safe-area); bottom padding for tab bar on mobile */}
+      <main className="min-w-0 flex-1 p-4 pt-[calc(3.5rem+env(safe-area-inset-top,0px))] pb-20 md:pt-8 md:pb-8 md:p-8">
+        {children}
+      </main>
+      <ControlCentreBottomNav onMoreClick={() => setMobileMenuOpen(true)} />
     </div>
   );
 }

@@ -7,16 +7,18 @@ import { SourcesTable } from "./SourcesTable";
 import { SourceDetailsDrawer } from "./SourceDetailsDrawer";
 import { EmptyState } from "./EmptyState";
 import { AddSourceModal } from "./AddSourceModal";
+import { AnalyzePageModal, type AnalyzePageModalData } from "./AnalyzePageModal";
 import {
   getSources,
   createSource,
   updateSource,
   deleteSource,
   pauseSource,
+  activateSource,
 } from "@/lib/leads/sources";
 import { deleteSourceAndCredentials } from "./actions";
 import { getRuleSets } from "@/lib/leads/rule-sets";
-import type { LeadSource, LeadSourceCreate, LeadRuleSet, ScanRun } from "@/lib/leads/types";
+import type { LeadSource, LeadSourceCreate, LeadRuleSet, ScanRun, SourceExtractionConfig } from "@/lib/leads/types";
 import { getFirebaseAuth } from "@/lib/firebase/client";
 
 type SourcesTabProps = {
@@ -59,20 +61,21 @@ export function SourcesTab({
   const [editingSource, setEditingSource] = useState<LeadSource | null>(null);
   const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [scanningSourceId, setScanningSourceId] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [analyzingSourceId, setAnalyzingSourceId] = useState<string | null>(null);
+  const [analyzeResultModal, setAnalyzeResultModal] = useState<AnalyzePageModalData | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const wasConnectingOrScanningRef = useRef(false);
 
-  // Sync details drawer source after connect or scan finishes
+  // Sync details drawer source after connect finishes
   useEffect(() => {
-    if (connectingSourceId || scanningSourceId) {
+    if (connectingSourceId) {
       wasConnectingOrScanningRef.current = true;
     } else if (wasConnectingOrScanningRef.current && detailsSource) {
       wasConnectingOrScanningRef.current = false;
       const next = sources.find((s) => s.id === detailsSource.id);
       if (next) setDetailsSource(next);
     }
-  }, [connectingSourceId, scanningSourceId, detailsSource, sources]);
+  }, [connectingSourceId, detailsSource, sources]);
 
   const load = useCallback(async (silent = false): Promise<LeadSource[]> => {
     if (!silent) setLoading(true);
@@ -105,8 +108,13 @@ export function SourcesTab({
     return id;
   }
 
-  async function handlePause(id: string) {
-    await pauseSource(id);
+  async function handleToggleStatus(id: string) {
+    const source = sources.find((s) => s.id === id);
+    if (source?.status === "Active") {
+      await pauseSource(id);
+    } else {
+      await activateSource(id);
+    }
     await load();
   }
 
@@ -185,38 +193,67 @@ export function SourcesTab({
     }
   }
 
-  async function handleScanNow(id: string) {
-    setScanError(null);
-    setScanningSourceId(id);
+  async function handleAnalyzePage(sourceId: string) {
+    setAnalyzeError(null);
+    setAnalyzingSourceId(sourceId);
     try {
       const auth = getFirebaseAuth();
       const user = auth.currentUser;
       if (!user) {
-        setScanError("Please log in again.");
-        setScanningSourceId(null);
+        setAnalyzeError("Please log in again.");
+        setAnalyzingSourceId(null);
         return;
       }
       const token = await user.getIdToken();
-      const res = await fetch("/api/control-centre/leads/scan", {
+      const res = await fetch("/api/control-centre/leads/analyze-page", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ sourceId: id }),
+        body: JSON.stringify({ sourceId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setScanError(data?.error ?? "Scan failed");
+        setAnalyzeError(data?.error ?? "Analysis failed");
         return;
       }
-      await load(true);
-      // Signal leads page to refresh so new leads appear without a manual reload.
-      try { localStorage.setItem("roofix_scan_completed_at", Date.now().toString()); } catch {}
+      const source = sources.find((s) => s.id === sourceId);
+      setAnalyzeResultModal({
+        sourceId,
+        sourceName: source?.name ?? "Source",
+        diagnostics: data.diagnostics,
+        suggestedConfig: data.suggestedConfig,
+        previewLeads: data.previewLeads ?? [],
+      });
     } catch (e) {
-      setScanError(e instanceof Error ? e.message : "Scan failed");
+      setAnalyzeError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
-      setScanningSourceId(null);
+      setAnalyzingSourceId(null);
+    }
+  }
+
+  async function handleSaveExtractionConfig(
+    sourceId: string,
+    extractionConfig: SourceExtractionConfig
+  ): Promise<void> {
+    const auth = getFirebaseAuth();
+    const user = auth.currentUser;
+    if (!user) throw new Error("Please log in again.");
+    const token = await user.getIdToken();
+    const res = await fetch("/api/control-centre/leads/save-extraction-config", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ sourceId, extractionConfig }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error ?? "Failed to save");
+    const updated = await load(true);
+    if (detailsSource?.id === sourceId) {
+      setDetailsSource(updated.find((s) => s.id === sourceId) ?? null);
     }
   }
 
@@ -290,12 +327,12 @@ export function SourcesTab({
               </button>
             </div>
           )}
-          {scanError && (
+          {analyzeError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
-              {scanError}
+              {analyzeError}
               <button
                 type="button"
-                onClick={() => setScanError(null)}
+                onClick={() => setAnalyzeError(null)}
                 className="ml-2 font-medium underline"
               >
                 Dismiss
@@ -318,8 +355,19 @@ export function SourcesTab({
           )}
           <SourcesTable
             sources={sources}
+            scannerStatus={
+              sources.some(
+                (s) =>
+                  !s.isSystem &&
+                  (s.storageStatePath?.trim() ?? "") !== "" &&
+                  (s.leadsUrl?.trim() ?? "") !== "" &&
+                  s.status === "Active"
+              )
+                ? "Running"
+                : "Paused"
+            }
             onEdit={handleEdit}
-            onPause={handlePause}
+            onPause={handleToggleStatus}
             onRunTest={handleRunTest}
             onDelete={handleDelete}
             onConnect={handleConnect}
@@ -327,8 +375,6 @@ export function SourcesTab({
               setDetailsSource(sources.find((s) => s.id === id) ?? null)
             }
             connectingSourceId={connectingSourceId}
-            onScanNow={handleScanNow}
-            scanningSourceId={scanningSourceId}
           />
         </>
       )}
@@ -343,16 +389,16 @@ export function SourcesTab({
             setDetailsSource(null);
           }}
           onPause={async (id) => {
-            await handlePause(id);
+            await handleToggleStatus(id);
             const updated = await load(true);
             setDetailsSource(updated.find((s) => s.id === id) ?? null);
           }}
           onConnect={handleConnect}
-          onScanNow={handleScanNow}
+          onAnalyzePage={handleAnalyzePage}
           onDelete={handleDelete}
           onFetchScanRuns={fetchScanRuns}
           connectingSourceId={connectingSourceId}
-          scanningSourceId={scanningSourceId}
+          analyzingSourceId={analyzingSourceId}
           basePath={basePath}
         />
       )}
@@ -364,6 +410,13 @@ export function SourcesTab({
         onSave={handleSave}
         ruleSets={ruleSets}
         editingSource={editingSource}
+      />
+
+      {/* Analyze Page result modal */}
+      <AnalyzePageModal
+        data={analyzeResultModal}
+        onClose={() => setAnalyzeResultModal(null)}
+        onSave={handleSaveExtractionConfig}
       />
     </div>
   );

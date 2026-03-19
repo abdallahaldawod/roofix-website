@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { chromium } from "playwright";
 import { requireControlCentreAuth } from "@/lib/control-centre-auth";
 import { getSourceByIdAdmin } from "@/lib/leads/sources-admin";
 import { resolveStorageStatePath } from "@/lib/leads/connection/session-persistence";
@@ -102,6 +101,7 @@ export async function POST(request: Request) {
 
   let browser;
   try {
+    const { chromium } = await import("playwright");
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ storageState: absolutePath });
     const page = await context.newPage();
@@ -302,14 +302,36 @@ export async function POST(request: Request) {
       }
       if (description) description = description.slice(0, 2000);
       let leadCost: string | undefined;
-      const withCredit = Array.from(document.querySelectorAll("main *, [role='dialog'] *")).filter(
-        (el) => (el.textContent ?? "").toLowerCase().includes("credit")
-      );
-      for (const el of withCredit) {
-        const costMatch = (el.textContent ?? "").match(/(\d+(?:\.\d+)?\s*credits?|\$[\d,.]+)/i);
-        if (costMatch && (costMatch[1] ?? costMatch[0])?.length < 30) {
-          leadCost = (costMatch[1] ?? costMatch[0])?.trim();
-          break;
+      // 0) Job page may show "Free" (e.g. instead of credits) — check full page first so we don't show "—"
+      if (/\bfree\b/i.test(document.body.innerText ?? "")) leadCost = "Free";
+      // 1) Label-based: "Credit" or "Cost" label with value in next sibling or same block
+      if (!leadCost) {
+        const creditLabel = getLabelValue("credit") ?? getLabelValue("cost") ?? getLabelValue("lead cost");
+        if (creditLabel) {
+          const normalized = creditLabel.trim();
+          if (/^free$/i.test(normalized)) {
+            leadCost = "Free";
+          } else if (/^\$[\d,.]+$/.test(normalized) || /^\d+(?:\.\d+)?\s*credits?$/i.test(normalized)) {
+            leadCost = normalized;
+          } else if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+            leadCost = `${normalized} credits`;
+          } else {
+            const fromLabel = normalized.match(/(\$[\d,.]+|\d+(?:\.\d+)?\s*credits?)/i);
+            if (fromLabel) leadCost = fromLabel[1]?.trim() ?? fromLabel[0]?.trim();
+          }
+        }
+      }
+      // 2) Any element containing "credit" or "cost" with a short cost-like substring
+      if (!leadCost) {
+        const withCredit = Array.from(document.querySelectorAll("main *, [role='dialog'] *")).filter(
+          (el) => (el.textContent ?? "").toLowerCase().includes("credit")
+        );
+        for (const el of withCredit) {
+          const costMatch = (el.textContent ?? "").match(/(\d+(?:\.\d+)?\s*credits?|\$[\d,.]+)/i);
+          if (costMatch && (costMatch[1] ?? costMatch[0])?.length < 30) {
+            leadCost = (costMatch[1] ?? costMatch[0])?.trim();
+            break;
+          }
         }
       }
       if (!leadCost) {

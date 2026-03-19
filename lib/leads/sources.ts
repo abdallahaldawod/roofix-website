@@ -60,6 +60,7 @@ function toLeadSource(id: string, d: DocumentData): LeadSource {
     lastScanImported: d.lastScanImported ?? undefined,
     lastScanFailedImport: d.lastScanFailedImport ?? undefined,
     lastScanDebug: (d.lastScanDebug as LastScanDebug | undefined) ?? undefined,
+    lastScanDurationMs: typeof d.lastScanDurationMs === "number" ? d.lastScanDurationMs : undefined,
     extractionDebug: d.extractionDebug ?? undefined,
   };
 }
@@ -118,6 +119,10 @@ export async function deleteSource(id: string): Promise<void> {
 
 export async function pauseSource(id: string): Promise<void> {
   await updateSource(id, { status: "Paused", active: false });
+}
+
+export async function activateSource(id: string): Promise<void> {
+  await updateSource(id, { status: "Active", active: true });
 }
 
 export async function incrementScanCounters(
