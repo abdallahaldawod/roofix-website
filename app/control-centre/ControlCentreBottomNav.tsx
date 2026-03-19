@@ -9,7 +9,7 @@ const TABS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/leads", label: "Leads", icon: Users },
   { path: "/analytics", label: "Analytics", icon: BarChart3 },
-  { path: "/more", label: "More", icon: MoreHorizontal, isMore: true },
+  { path: "/more", label: "More", icon: MoreHorizontal },
 ] as const;
 
 type Props = { onMoreClick: () => void };
@@ -33,7 +33,7 @@ export function ControlCentreBottomNav({ onMoreClick }: Props) {
     >
       <div className="flex items-center justify-around pb-[env(safe-area-inset-bottom,0)] pt-2">
         {TABS.map((tab) => {
-          if (tab.isMore) {
+          if (tab.path === "/more") {
             return (
               <button
                 key="more"
