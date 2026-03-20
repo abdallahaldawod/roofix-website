@@ -4,6 +4,7 @@
  */
 
 import type { LeadRuleSet, LeadDecision, ScoringRule } from "./types";
+import { formatTimelineTime } from "./format-timeline-time";
 
 export type EvaluationInput = {
   title: string;
@@ -24,14 +25,6 @@ export type EvaluationResult = {
   /** Timestamped audit trail for the detail modal timeline. */
   timeline: { time: string; event: string }[];
 };
-
-function nowTimeString(): string {
-  return new Date().toLocaleTimeString("en-AU", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
 
 /** Normalise text for matching: lowercase + trim. */
 function norm(s: string): string {
@@ -58,9 +51,11 @@ export function evaluateLead(
   );
   const timeline: { time: string; event: string }[] = [];
   const reasons: string[] = [];
-  const t = nowTimeString();
+  const scanStartMs = Date.now();
+  let timelineTick = 0;
+  const tMark = () => formatTimelineTime(new Date(scanStartMs + timelineTick++));
 
-  timeline.push({ time: t, event: "Lead scanned from source" });
+  timeline.push({ time: tMark(), event: "Lead scanned from source" });
 
   // ── 1. Excluded keywords ──────────────────────────────────────────────────
   const excludedMatched = ruleSet.excludedKeywords.filter((kw) =>
@@ -70,8 +65,8 @@ export function evaluateLead(
   if (excludedMatched.length > 0) {
     const reason = `Excluded keyword matched: ${excludedMatched.map((k) => `"${k}"`).join(", ")}`;
     reasons.push(reason);
-    timeline.push({ time: t, event: reason });
-    timeline.push({ time: t, event: "Decision: Reject (excluded keyword)" });
+    timeline.push({ time: tMark(), event: reason });
+    timeline.push({ time: tMark(), event: "Decision: Reject (excluded keyword)" });
     return {
       matchedKeywords: [],
       excludedMatched,
@@ -92,8 +87,8 @@ export function evaluateLead(
     const location = [input.suburb, input.postcode].filter(Boolean).join(" ");
     const reason = `Location not in allowed list: ${location}`;
     reasons.push(reason);
-    timeline.push({ time: t, event: reason });
-    timeline.push({ time: t, event: "Decision: Reject (location not allowed)" });
+    timeline.push({ time: tMark(), event: reason });
+    timeline.push({ time: tMark(), event: "Decision: Reject (location not allowed)" });
     return {
       matchedKeywords: [],
       excludedMatched: [],
@@ -116,8 +111,8 @@ export function evaluateLead(
   ) {
     const reason = "No required keywords matched";
     reasons.push(reason);
-    timeline.push({ time: t, event: reason });
-    timeline.push({ time: t, event: "Decision: Reject (no required keywords)" });
+    timeline.push({ time: tMark(), event: reason });
+    timeline.push({ time: tMark(), event: "Decision: Reject (no required keywords)" });
     return {
       matchedKeywords: [],
       excludedMatched: [],
@@ -151,12 +146,12 @@ export function evaluateLead(
 
   if (matchedKeywords.length > 0) {
     const kwEvent = `Keywords matched: ${matchedKeywords.join(", ")}`;
-    timeline.push({ time: t, event: kwEvent });
+    timeline.push({ time: tMark(), event: kwEvent });
     reasons.push(kwEvent);
   }
 
   const scoreEvent = `Score computed: ${score}`;
-  timeline.push({ time: t, event: scoreEvent });
+  timeline.push({ time: tMark(), event: scoreEvent });
 
   // ── 5. Decision ───────────────────────────────────────────────────────────
   let decision: LeadDecision;
@@ -178,10 +173,10 @@ export function evaluateLead(
   }
 
   timeline.push({
-    time: t,
+    time: tMark(),
     event: `Decision: ${decision} (accept≥${ruleSet.thresholds.accept}, review≥${ruleSet.thresholds.review})`,
   });
-  timeline.push({ time: t, event: "Lead marked as Processed" });
+  timeline.push({ time: tMark(), event: "Lead marked as Processed" });
 
   return {
     matchedKeywords,

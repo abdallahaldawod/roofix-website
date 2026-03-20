@@ -363,7 +363,7 @@ export function ActivityLeadModal({ lead, onClose }: ActivityLeadModalProps) {
               {lead.timeline.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <span className="absolute -left-1.5 mt-1 h-3 w-3 rounded-full border-2 border-white bg-neutral-400" />
-                  <span className="shrink-0 tabular-nums text-xs text-neutral-400 w-16">
+                  <span className="shrink-0 tabular-nums text-xs text-neutral-400 min-w-[9rem]">
                     {item.time}
                   </span>
                   <span className="text-sm text-neutral-700">{item.event}</span>

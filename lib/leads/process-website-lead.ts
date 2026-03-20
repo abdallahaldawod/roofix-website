@@ -4,6 +4,7 @@
  */
 
 import { evaluateLead, type EvaluationInput } from "./rule-engine";
+import { formatTimelineTime } from "./format-timeline-time";
 import type { IncomingLeadCreate, LeadActivityCreate, LeadRuleSet } from "./types";
 import { updateIncomingLeadProcessed } from "./incoming";
 import { getOrCreateRoofixWebsiteSourceAdmin } from "./sources-admin";
@@ -76,20 +77,16 @@ export async function processWebsiteLead(
     ruleSet = ruleSets.find((r) => r.status === "Active");
   }
   if (!ruleSet) {
-    const fallbackTime = new Date().toLocaleTimeString("en-AU", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+    const fallbackBaseMs = Date.now();
     const fallbackReasons = [
       "No active rule set configured for website leads",
       "Lead queued for manual review",
     ];
     const fallbackTimeline = [
-      { time: fallbackTime, event: "Lead submitted via Roofix Website form" },
-      { time: fallbackTime, event: "No active rule set configured" },
-      { time: fallbackTime, event: "Decision: Review (manual triage required)" },
-      { time: fallbackTime, event: "Lead marked as Processed" },
+      { time: formatTimelineTime(new Date(fallbackBaseMs)), event: "Lead submitted via Roofix Website form" },
+      { time: formatTimelineTime(new Date(fallbackBaseMs + 1)), event: "No active rule set configured" },
+      { time: formatTimelineTime(new Date(fallbackBaseMs + 2)), event: "Decision: Review (manual triage required)" },
+      { time: formatTimelineTime(new Date(fallbackBaseMs + 3)), event: "Lead marked as Processed" },
     ];
 
     const fallbackActivity: LeadActivityCreate = {

@@ -51,6 +51,7 @@ export default function ControlCentreTestimonialsPage() {
   const [googleReviews, setGoogleReviews] = useState<GoogleReview[]>([]);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleFetchSucceededOnce, setGoogleFetchSucceededOnce] = useState(false);
   const [addingReviewId, setAddingReviewId] = useState<string | null>(null);
 
   async function load() {
@@ -147,9 +148,7 @@ export default function ControlCentreTestimonialsPage() {
   }
 
   async function fetchGoogleReviews() {
-    setGoogleError(null);
     setGoogleLoading(true);
-    setGoogleReviews([]);
     try {
       const auth = getFirebaseAuth();
       const user = auth.currentUser;
@@ -177,6 +176,8 @@ export default function ControlCentreTestimonialsPage() {
         setGoogleError(msg);
         return;
       }
+      setGoogleError(null);
+      setGoogleFetchSucceededOnce(true);
       setGoogleReviews(json.reviews ?? []);
     } catch (e) {
       setGoogleError(e instanceof Error ? e.message : "Failed to fetch reviews.");
@@ -237,7 +238,9 @@ export default function ControlCentreTestimonialsPage() {
       {/* Google Business Profile import */}
       <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-neutral-900">Import from Google Business Profile</h2>
-        {googleError ? (
+        {googleLoading ? (
+          <p className="mt-2 text-sm text-neutral-600">Fetching reviews from Google…</p>
+        ) : googleError ? (
           <div className="mt-2">
             {googleError.includes("not configured") ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -269,27 +272,20 @@ export default function ControlCentreTestimonialsPage() {
               </div>
             )}
           </div>
-        ) : googleReviews.length === 0 ? (
+        ) : googleFetchSucceededOnce && googleReviews.length === 0 ? (
+          <p className="mt-2 text-sm text-neutral-600">
+            No reviews were returned from Google for this location. If you expected reviews, check the account and location IDs in{" "}
+            <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">.env.local</code>.
+          </p>
+        ) : (
           <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-700">
-            <p className="font-medium">Google Business Profile is optional.</p>
-            <p className="mt-1 text-neutral-600">
-              To import reviews, add these to <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">.env.local</code> (see{" "}
-              <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">.env.local.example</code> for details):
-            </p>
-            <ul className="mt-2 list-inside list-disc space-y-0.5 text-neutral-600">
-              <li><code className="rounded bg-neutral-200 px-1 font-mono text-xs">GOOGLE_GBP_ACCOUNT_ID</code> — Business Profile account ID</li>
-              <li><code className="rounded bg-neutral-200 px-1 font-mono text-xs">GOOGLE_GBP_LOCATION_ID</code> — Location ID</li>
-              <li><code className="rounded bg-neutral-200 px-1 font-mono text-xs">GOOGLE_GBP_CLIENT_ID</code>, <code className="rounded bg-neutral-200 px-1 font-mono text-xs">GOOGLE_GBP_CLIENT_SECRET</code>, <code className="rounded bg-neutral-200 px-1 font-mono text-xs">GOOGLE_GBP_REFRESH_TOKEN</code> — OAuth 2.0 credentials</li>
-            </ul>
-            <p className="mt-2 text-neutral-600">
-              Enable the My Business API in Google Cloud and complete the one-time OAuth flow to get a refresh token. Restart the dev server after adding env vars.
-            </p>
-            <p className="mt-2 text-neutral-600">
-              If it still doesn’t work, the My Business API requires Google’s approval—request access at{" "}
-              <a href="https://support.google.com/business/contact/api_default" target="_blank" rel="noopener noreferrer" className="underline">support.google.com/business/contact/api_default</a> and see the full checklist in <code className="rounded bg-neutral-200 px-1 font-mono text-xs">.env.local.example</code>.
+            <p className="text-neutral-600">
+              Google reviews are optional. Use <span className="font-medium text-neutral-800">Import from Google Business</span> above after configuring credentials in{" "}
+              <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">.env.local</code> — see the Google Business Profile section in{" "}
+              <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">.env.local.example</code>.
             </p>
           </div>
-        ) : null}
+        )}
         {googleReviews.length > 0 && (
             <ul className="mt-3 space-y-3">
               {googleReviews.map((r) => (
