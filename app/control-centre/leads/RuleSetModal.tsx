@@ -107,9 +107,6 @@ export function RuleSetModal({ open, onClose, onSave, editingRuleSet }: RuleSetM
           thresholds,
           triggerPlatformActions: Object.keys(triggerPlatformActions).length ? triggerPlatformActions : undefined,
         };
-    // #region agent log
-    fetch('http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d15bb9'},body:JSON.stringify({sessionId:'d15bb9',runId:'pre-fix-ruleset',hypothesisId:'R1',location:'app/control-centre/leads/RuleSetModal.tsx:111',message:'ruleset payload before onSave',data:{editing:!!editingRuleSet,triggerKeys:Object.keys(base.triggerPlatformActions ?? {}),triggerValues:{accept:base.triggerPlatformActions?.accept ?? null,review:base.triggerPlatformActions?.review ?? null,reject:base.triggerPlatformActions?.reject ?? null},hasUndefinedTriggerValue:Object.values(base.triggerPlatformActions ?? {}).some((v)=>v===undefined)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setSaving(true);
     try {
       await onSave(base);

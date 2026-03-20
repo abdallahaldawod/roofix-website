@@ -291,9 +291,9 @@ export type LeadActivity = {
   acceptedConfirmedAt?: FsTimestamp;
   /** Last time this job was seen on the Hipages jobs list. */
   jobsPageLastSeenAt?: FsTimestamp;
-  /** Client-only: link to open the job on Hipages (hipages_jobs mirror rows). */
+  /** Client-only: link to open the job on Hipages (business job page). */
   externalUrl?: string;
-  /** Client-only: Hipages jobs list — Create Quote visible on platform. */
+  /** Client-only: Hipages business jobs UI — Create Quote visible on platform. */
   canCreateQuote?: boolean;
 };
 

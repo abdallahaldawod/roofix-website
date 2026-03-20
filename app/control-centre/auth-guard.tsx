@@ -69,7 +69,21 @@ export function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  if (isLoginPage && status !== "authenticated") {
+  if (isLoginPage) {
+    if (status === "authenticated") {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-neutral-100">
+          <p className="text-neutral-600">Redirecting…</p>
+        </div>
+      );
+    }
+    if (status === "loading" && user) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-neutral-100">
+          <p className="text-neutral-600">Signing you in…</p>
+        </div>
+      );
+    }
     return <>{children}</>;
   }
 

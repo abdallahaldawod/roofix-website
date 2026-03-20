@@ -18,7 +18,7 @@ import { join, resolve } from "path";
 const _adaptersDir = join(process.cwd(), "lib", "leads", "scanning", "adapters");
 const COST_EVALUATE_MAIN = readFileSync(join(_adaptersDir, "hipages-cost-evaluate.js"), "utf8");
 const COST_EVALUATE_RETRY = readFileSync(join(_adaptersDir, "hipages-cost-evaluate-retry.js"), "utf8");
-import type { Locator } from "playwright";
+import type { Locator, Page } from "playwright";
 import type {
   BrowserScanContext,
   AdapterAuthState,
@@ -39,9 +39,39 @@ function parseLeadCostCredits(leadCost: string | null | undefined): number | nul
   return Number.isFinite(n) ? n : null;
 }
 
-const LEAD_CARD_SELECTOR = 'article[data-tracking-label="Lead Card"]';
+export const HIPAGES_LEAD_CARD_SELECTOR = 'article[data-tracking-label="Lead Card"]';
+
+const LEAD_CARD_SELECTOR = HIPAGES_LEAD_CARD_SELECTOR;
 
 const LIST_WAIT_MS = 20_000;
+
+export type HipagesCardExtractMode = "fast" | "full";
+
+/**
+ * Sort lead card indices newest-first using `time[datetime]` on each card.
+ * Falls back to DOM order when timestamps are missing (all ms === 0).
+ */
+export async function sortHipagesLeadCardIndicesNewestFirst(
+  page: Page,
+  cardCount: number
+): Promise<number[]> {
+  if (cardCount <= 0) return [];
+  const indices = await page.evaluate(
+    ({ selector, n }: { selector: string; n: number }) => {
+      const cards = Array.from(document.querySelectorAll(selector)).slice(0, n);
+      const items = cards.map((el, i) => {
+        const t = el.querySelector("time[datetime]");
+        const attr = t?.getAttribute("datetime")?.trim() ?? "";
+        const ms = attr ? Date.parse(attr) : NaN;
+        return { i, ms: Number.isFinite(ms) ? ms : 0 };
+      });
+      items.sort((a, b) => b.ms - a.ms || a.i - b.i);
+      return items.map((x) => x.i);
+    },
+    { selector: LEAD_CARD_SELECTOR, n: cardCount }
+  );
+  return indices;
+}
 
 function takeFailureScreenshot(page: BrowserScanContext["page"], label: string): void {
   if (process.env.SCREENSHOT_ON_FAILURE !== "1" && process.env.SCREENSHOT_ON_FAILURE !== "true") return;
@@ -120,7 +150,7 @@ export class HipagesAdapter implements SourceAdapter {
 
       for (let i = 0; i < cards.length; i++) {
         try {
-          const lead = await this.extractOneCard(cards[i]!, i);
+          const lead = await this.extractOneCard(cards[i]!, i, "full");
           if (lead) {
             leads.push(lead);
           } else {
@@ -147,7 +177,22 @@ export class HipagesAdapter implements SourceAdapter {
     }
   }
 
-  private async extractOneCard(card: Locator, index: number): Promise<RawExtractedLead | null> {
+  /**
+   * Single-card extract for two-pass background scan (`fast` skips slow cost retry + attachments).
+   */
+  async extractLeadCard(
+    card: Locator,
+    index: number,
+    mode: HipagesCardExtractMode
+  ): Promise<RawExtractedLead | null> {
+    return this.extractOneCard(card, index, mode);
+  }
+
+  private async extractOneCard(
+    card: Locator,
+    index: number,
+    mode: HipagesCardExtractMode
+  ): Promise<RawExtractedLead | null> {
     // ── externalId from accept link: /leads/{id}/accept ──────────────────────
     let externalId: string | undefined;
     try {
@@ -251,8 +296,8 @@ export class HipagesAdapter implements SourceAdapter {
       leadCostCredits = creditsFromDom.credits;
     }
 
-    // Fallback: generic cost-evaluate script if targeted extraction found nothing
-    if (leadCost == null) {
+    // Fallback: generic cost-evaluate script if targeted extraction found nothing (full mode only)
+    if (leadCost == null && mode === "full") {
       const costResult = await card
         .evaluate(
           (el: Element, script: string) => {
@@ -363,8 +408,10 @@ export class HipagesAdapter implements SourceAdapter {
       .catch(() => ({} as { accept?: string; acceptLabel?: string; decline?: string; declineLabel?: string; waitlist?: string; waitlistLabel?: string }));
 
     // ── attachments (photos/documents linked from the card) ───────────────────
-    const attachments = await card
-      .evaluate((el) => {
+    const attachments =
+      mode === "fast"
+        ? []
+        : await card.evaluate((el) => {
         const base = typeof document !== "undefined" ? document.baseURI || window.location.origin : "";
         const resolve = (href: string) => {
           if (!href) return "";

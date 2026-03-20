@@ -35,6 +35,9 @@ export function useAuth(): AuthState {
         setState({ status: "unauthenticated", user: null, isAdmin: false });
         return;
       }
+      // Acknowledge sign-in immediately so protected routes don’t see a stale
+      // "unauthenticated" while Firestore loads (avoids bounce back to login).
+      setState({ status: "loading", user, isAdmin: false });
       try {
         const db = getFirestoreDb();
         const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));

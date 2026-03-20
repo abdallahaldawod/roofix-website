@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -18,7 +18,6 @@ import {
   Menu,
   X,
   Users,
-  Briefcase,
 } from "lucide-react";
 
 const nav = [
@@ -29,10 +28,7 @@ const nav = [
   { path: "/services", label: "Services", icon: Wrench },
   { path: "/testimonials", label: "Testimonials", icon: MessageSquare },
   { path: "/leads", label: "Leads", icon: Users },
-  { path: "/leads/hipages-jobs", label: "Hipages jobs", icon: Briefcase },
 ];
-
-const INACTIVITY_MS = 10 * 60 * 1000; // 10 minutes
 
 export default function DashboardLayout({
   children,
@@ -42,7 +38,6 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const base = useControlCentreBase();
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Use /control-centre so links always hit the real route in production (app/control-centre/...)
@@ -56,23 +51,6 @@ export default function DashboardLayout({
     await signOut(auth);
     router.replace(href("/login"));
   }, [base, router]);
-
-  useEffect(() => {
-    const resetTimer = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => {
-        handleSignOut();
-      }, INACTIVITY_MS);
-    };
-
-    resetTimer();
-    const events = ["mousedown", "keydown", "scroll", "touchstart", "mousemove"];
-    events.forEach((e) => window.addEventListener(e, resetTimer));
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, resetTimer));
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [handleSignOut]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -100,9 +78,7 @@ export default function DashboardLayout({
           const active =
             item.path === "/"
               ? isDashboard
-              : item.path === "/leads/hipages-jobs"
-                ? pathname.endsWith("/leads/hipages-jobs")
-                : pathname === linkBase + item.path ||
+              : pathname === linkBase + item.path ||
                   pathname === "/control-centre" + item.path ||
                   pathname === item.path;
           return (

@@ -14,103 +14,23 @@ import { urlReachesLeads } from "./session-validity";
 import { extractLeadsFromPage } from "./selector-extractor";
 import { getAdapter, getAdapterByUrl } from "./adapters/registry";
 import { normalizeToScannedLead } from "./normalize";
-import { computeDedupeKey, isLeadAlreadyProcessed } from "./dedupe";
+import { computeDedupeKey } from "./dedupe";
 import {
-  processScannedLead,
-  buildPlatformUpdateFromScannedLead,
-} from "./process-scanned-lead";
-import {
-  writeScannedLeadRaw,
-  updateScannedLeadRawActivityId,
-  getScannedLeadByDedupeKey,
   listScannedLeadsBySourceId,
   deleteScannedLeadRaw,
+  getScannedLeadByDedupeKey,
 } from "@/lib/leads/scanned-leads-admin";
-import { getActivityByIdAdmin, updateActivityAdmin, updateActivityRuleResultAdmin, deleteActivityById } from "@/lib/leads/activity-admin";
+import { getActivityByIdAdmin, deleteActivityById } from "@/lib/leads/activity-admin";
 import { getRuleSetsAdmin } from "@/lib/leads/rule-sets-admin";
-import { evaluateLead, type EvaluationInput } from "@/lib/leads/rule-engine";
-import { incrementScanCountersAdmin } from "@/lib/leads/sources-admin";
-import { performHipagesAction } from "@/lib/leads/hipages-action";
-import { createActionRequest } from "@/lib/leads/action-queue-admin";
-import { runActionQueueCycle } from "./action-queue-worker";
-import type { LeadRuleSet, FsTimestamp, TriggerPlatformAction } from "@/lib/leads/types";
-import type { LeadActivityPlatformUpdate } from "@/lib/leads/activity-admin";
+import type { LeadRuleSet, FsTimestamp } from "@/lib/leads/types";
 import type { RawExtractedLead } from "./adapter-types";
 import { withTimeout } from "./retry-timeout";
 import { logScan } from "./scan-logger";
-
-/** Returns true if existing activity matches the platform payload (no update needed). */
-function platformDataEquals(
-  payload: LeadActivityPlatformUpdate,
-  existing: Record<string, unknown>
-): boolean {
-  const keys: (keyof LeadActivityPlatformUpdate)[] = [
-    "title",
-    "description",
-    "suburb",
-    "postcode",
-    "customerName",
-    "serviceType",
-    "postedAt",
-    "postedAtIso",
-    "postedAtText",
-    "leadCost",
-    "leadCostCredits",
-  ];
-  for (const k of keys) {
-    const p = payload[k];
-    const e = existing[k];
-    if (k === "postedAt") {
-      const ps = (p as { seconds?: number } | undefined)?.seconds;
-      const es =
-        (e as { seconds?: number } | undefined)?.seconds ??
-        (e as { _seconds?: number } | undefined)?._seconds;
-      if (ps !== es) return false;
-      continue;
-    }
-    if (p !== e && !(p == null && e == null)) return false;
-  }
-  const pH = payload.hipagesActions;
-  const eH = existing.hipagesActions;
-  if (pH != null || eH != null) {
-    if (typeof pH !== "object" || typeof eH !== "object") return false;
-    if (JSON.stringify(pH ?? {}) !== JSON.stringify(eH ?? {})) return false;
-  }
-  const pAtt = payload.attachments;
-  const eAtt = existing.attachments;
-  if (pAtt != null || eAtt != null) {
-    if (!Array.isArray(pAtt) || !Array.isArray(eAtt) || JSON.stringify(pAtt) !== JSON.stringify(eAtt)) return false;
-  }
-  return true;
-}
-
-async function triggerPlatformActionFast(params: {
-  sourceId: string;
-  actionPath: string;
-  action: TriggerPlatformAction;
-  leadId: string;
-}): Promise<{ ok: boolean; error?: string; step?: string }> {
-  if (params.action !== "accept") {
-    return performHipagesAction({
-      sourceId: params.sourceId,
-      actionPath: params.actionPath,
-      action: params.action,
-      leadId: params.leadId,
-    });
-  }
-  const externalIdMatch = params.actionPath.match(/^\/leads\/([^/]+)\//);
-  const queueId = await createActionRequest({
-    leadId: params.leadId,
-    sourceId: params.sourceId,
-    action: "accept",
-    requestedBy: "system:rule-trigger",
-    ...(externalIdMatch?.[1] ? { externalId: externalIdMatch[1] } : {}),
-    actionPath: params.actionPath,
-  });
-  if (!queueId) return { ok: false, error: "Could not queue accept action" };
-  void runActionQueueCycle().catch(() => {});
-  return { ok: true };
-}
+import { HipagesAdapter, sortHipagesLeadCardIndicesNewestFirst } from "./adapters/hipages-adapter";
+import {
+  processOneExtractedRawLead,
+  enrichExistingActivityFromFullExtract,
+} from "./scan-lead-import-loop";
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const BROWSER_LAUNCH_TIMEOUT_MS = 25_000;
@@ -237,11 +157,13 @@ export async function runBackgroundScan(
     });
 
     if (stillLoggedIn) {
-      let extracted = 0;
-      let duplicate = 0;
+      const tally = {
+        duplicate: 0,
+        imported: 0,
+        failedImport: 0,
+        extracted: 0,
+      };
       let failedExtraction = 0;
-      let imported = 0;
-      let failedImport = 0;
       let lastScanDebug: { pageUrl?: string; pageTitle?: string; leadCardCount?: number; snippet?: string } | undefined;
       const config = source.extractionConfig;
 
@@ -293,12 +215,24 @@ export async function runBackgroundScan(
           let failedCountLocal = 0;
           let debugLocal: { pageUrl?: string; pageTitle?: string; leadCardCount?: number; snippet?: string } = {};
 
-          if (platformAdapter) {
-            // Count actual DOM cards before extraction so leadCardCount reflects the page, not extracted results.
+          const useHipagesTwoPass =
+            platformAdapter?.platformId === "hipages" &&
+            Boolean(effectiveCardSelector) &&
+            platformAdapter instanceof HipagesAdapter;
+
+          if (useHipagesTwoPass) {
+            const domCardCount = await page.locator(effectiveCardSelector!).count().catch(() => 0);
+            debugLocal = {
+              pageUrl: page.url(),
+              pageTitle: await page.title().catch(() => ""),
+              leadCardCount: domCardCount,
+            };
+            failedCountLocal = 0;
+            leads = [];
+          } else if (platformAdapter) {
             const domCardCount = effectiveCardSelector
               ? await page.locator(effectiveCardSelector).count().catch(() => 0)
               : 0;
-            // Adapter-based extraction (used when source has no extractionConfig)
             leads = await withTimeout(
               platformAdapter.extractLeads({ page }),
               EXTRACTION_TIMEOUT_MS,
@@ -310,7 +244,6 @@ export async function runBackgroundScan(
               leadCardCount: domCardCount,
             };
           } else {
-            // Config-based generic extraction
             const extractionPromise = extractLeadsFromPage(page, config!, {
               captureSnippet: source.extractionDebug === true,
             });
@@ -345,282 +278,140 @@ export async function runBackgroundScan(
             return { ok: false, error: NO_CARDS_MESSAGE };
           }
 
-          // Each new lead is written to Firestore immediately (processScannedLead → writeActivityRecordAdmin).
-          // The Leads table subscribes to lead_activity via onSnapshot, so new leads appear in real time
-          // while the scanner continues to the next lead without waiting for UI updates.
           const currentDedupeKeys = new Set<string>();
-          for (const raw of leads) {
-            const normalized = normalizeToScannedLead(raw, source.id, source.name);
-            const dedupeKey = computeDedupeKey(source.id, normalized.externalId, {
-              title: normalized.title,
-              suburb: normalized.suburb,
-              postcode: normalized.postcode,
+
+          if (useHipagesTwoPass) {
+            const hipagesAdapter = platformAdapter as HipagesAdapter;
+            const cards = await page.locator(effectiveCardSelector!).all();
+            const order = await sortHipagesLeadCardIndicesNewestFirst(page, cards.length);
+            const fastPathStart = Date.now();
+            logScan("fast_path_started", {
+              sourceId,
+              cardCount: cards.length,
+              ordering: "postedAt_desc",
             });
-
-            currentDedupeKeys.add(dedupeKey);
-            const existing = await getScannedLeadByDedupeKey(source.id, dedupeKey);
-            const hasExisting = existing != null;
-            const hasActivityId = existing?.activityId != null && existing.activityId !== "";
-            const isProcessed = hasExisting && hasActivityId
-              ? await isLeadAlreadyProcessed(source.id, dedupeKey)
-              : false;
-
-            if (existing?.activityId && isProcessed) {
-              const activityId = existing.activityId;
-              const activity = await getActivityByIdAdmin(activityId);
-              if (activity) {
-                const payload = buildPlatformUpdateFromScannedLead(normalized);
-                if (!platformDataEquals(payload, activity)) {
-                  await updateActivityAdmin(activityId, payload).catch((err) => {
-                    logScan("update_activity_failed", {
-                      sourceId,
-                      activityId,
-                      error: err instanceof Error ? err.message : String(err),
-                      hadLeadCost: !!payload.leadCost,
-                    });
-                  });
-                }
-              }
-              // Re-apply rules on rescan: re-evaluate with current rule set and update score/decision, then trigger platform action if set.
-              if (effectiveRuleSet) {
-                const input: EvaluationInput = {
-                  title: normalized.title,
-                  description: normalized.description,
-                  suburb: normalized.suburb,
-                  postcode: normalized.postcode,
-                };
-                const ruleResult = evaluateLead(input, effectiveRuleSet);
-                try {
-                  await updateActivityRuleResultAdmin(activityId, {
-                    matchedKeywords: ruleResult.matchedKeywords,
-                    excludedMatched: ruleResult.excludedMatched,
-                    score: ruleResult.score,
-                    scoreBreakdown: ruleResult.scoreBreakdown,
-                    decision: ruleResult.decision,
-                    reasons: ruleResult.reasons,
-                    timeline: ruleResult.timeline,
-                    status: ruleResult.status,
-                    ruleSetId: effectiveRuleSet.id,
-                  });
-                  const decisionKey = ruleResult.decision.toLowerCase() as "accept" | "review" | "reject";
-                  const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
-                  const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
-                  // When "accept" was normalized to waitlist (Join Waitlist), use waitlist path and action "waitlist".
-                  const actionPath = triggerAction && (hipagesActions?.[triggerAction] ?? (triggerAction === "accept" ? hipagesActions?.waitlist : undefined));
-                  const effectiveAction: TriggerPlatformAction = (triggerAction === "accept" && actionPath === hipagesActions?.waitlist) ? "waitlist" : triggerAction!;
-                  if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
-                    try {
-                      const actionResult = await triggerPlatformActionFast({
-                        sourceId: source.id,
-                        actionPath: actionPath.trim(),
-                        action: effectiveAction,
-                        leadId: activityId,
-                      });
-                      if (actionResult.ok) {
-                        logScan("trigger_platform_action_ok", {
-                          sourceId,
-                          activityId,
-                          decision: ruleResult.decision,
-                          action: triggerAction,
-                          rescan: true,
-                        });
-                      } else {
-                        logScan("trigger_platform_action_failed", {
-                          sourceId,
-                          activityId,
-                          decision: ruleResult.decision,
-                          action: triggerAction,
-                          error: actionResult.error,
-                          step: actionResult.step,
-                          rescan: true,
-                        });
-                      }
-                    } catch (actionErr) {
-                      logScan("trigger_platform_action_error", {
-                        sourceId,
-                        activityId,
-                        error: actionErr instanceof Error ? actionErr.message : String(actionErr),
-                        rescan: true,
-                      });
-                    }
-                  }
-                } catch (ruleErr) {
-                  logScan("rescan_reapply_rules_failed", {
-                    sourceId,
-                    activityId,
-                    error: ruleErr instanceof Error ? ruleErr.message : String(ruleErr),
-                  });
-                }
-              }
-              duplicate++;
-              continue;
-            }
-
-            // Re-fetch: isLeadAlreadyProcessed may have deleted the scanned_lead when the activity was missing.
-            const existingForImport = await getScannedLeadByDedupeKey(source.id, dedupeKey);
-            // If re-fetch returned a doc that already has an activityId, treat as duplicate (avoid creating a second activity for same lead).
-            if (existingForImport?.activityId != null && existingForImport.activityId !== "") {
-              const activityId = existingForImport.activityId;
-              const activity = await getActivityByIdAdmin(activityId);
-              if (activity) {
-                const payload = buildPlatformUpdateFromScannedLead(normalized);
-                if (!platformDataEquals(payload, activity)) {
-                  await updateActivityAdmin(activityId, payload).catch((err) => {
-                    logScan("update_activity_failed", {
-                      sourceId,
-                      activityId,
-                      error: err instanceof Error ? err.message : String(err),
-                      hadLeadCost: !!payload.leadCost,
-                      path: "re-fetch",
-                    });
-                  });
-                }
-              }
-              if (effectiveRuleSet) {
-                const input: EvaluationInput = {
-                  title: normalized.title,
-                  description: normalized.description,
-                  suburb: normalized.suburb,
-                  postcode: normalized.postcode,
-                };
-                const ruleResult = evaluateLead(input, effectiveRuleSet);
-                try {
-                  await updateActivityRuleResultAdmin(activityId, {
-                    matchedKeywords: ruleResult.matchedKeywords,
-                    excludedMatched: ruleResult.excludedMatched,
-                    score: ruleResult.score,
-                    scoreBreakdown: ruleResult.scoreBreakdown,
-                    decision: ruleResult.decision,
-                    reasons: ruleResult.reasons,
-                    timeline: ruleResult.timeline,
-                    status: ruleResult.status,
-                    ruleSetId: effectiveRuleSet.id,
-                  });
-                } catch (ruleErr) {
-                  logScan("rescan_reapply_rules_failed", {
-                    sourceId,
-                    activityId,
-                    error: ruleErr instanceof Error ? ruleErr.message : String(ruleErr),
-                  });
-                }
-              }
-              duplicate++;
-              continue;
-            }
-            // Write lead_activity first so the UI sees the new lead immediately; then persist raw to scanned_leads and link.
-            try {
-              const processResult = await processScannedLead(
-                normalized,
-                source,
-                effectiveRuleSet
-              );
-              if (!processResult.ok) {
-                failedImport++;
+            let fastFailExtract = 0;
+            for (const idx of order) {
+              let raw: RawExtractedLead | null;
+              try {
+                raw = await withTimeout(
+                  hipagesAdapter.extractLeadCard(cards[idx]!, idx, "fast"),
+                  EXTRACTION_TIMEOUT_MS,
+                  "hipages_fast_extraction"
+                );
+              } catch {
+                fastFailExtract++;
                 continue;
               }
-              let rawId: string | null;
-              if (existingForImport) {
-                rawId = existingForImport.id;
-              } else {
-                rawId = await writeScannedLeadRaw({
-                  sourceId: source.id,
-                  sourceName: source.name,
-                  externalId: normalized.externalId,
-                  dedupeKey,
-                  title: normalized.title,
-                  description: normalized.description,
-                  suburb: normalized.suburb,
-                  postcode: normalized.postcode,
-                  raw: normalized.raw,
-                });
-                if (!rawId) {
-                  failedImport++;
-                  continue;
-                }
+              if (!raw) {
+                fastFailExtract++;
+                continue;
               }
-              extracted++;
-              await updateScannedLeadRawActivityId(rawId, processResult.activityId);
-              await incrementScanCountersAdmin(
-                source.id,
-                1,
-                processResult.decision === "Accept" ? 1 : 0
-              );
-              imported++;
-              logScan("lead_imported", {
+              await processOneExtractedRawLead({
+                raw,
+                source,
                 sourceId,
-                activityId: processResult.activityId,
-                decision: processResult.decision,
-                title: normalized.title?.slice(0, 60),
+                effectiveRuleSet,
+                currentDedupeKeys,
+                tallies: tally,
+                fastPathActionMetrics: true,
               });
+            }
+            logScan("fast_path_evaluated", {
+              sourceId,
+              duration_ms: Date.now() - fastPathStart,
+              fast_fail_extract: fastFailExtract,
+              duplicate: tally.duplicate,
+              imported: tally.imported,
+              extracted: tally.extracted,
+              failed_import: tally.failedImport,
+            });
+            failedExtraction = fastFailExtract;
 
-              // When rule set has a trigger platform action for this decision, press the button on the platform (e.g. hipages).
-              const decisionKey = processResult.decision.toLowerCase() as "accept" | "review" | "reject";
-              const triggerAction = effectiveRuleSet.triggerPlatformActions?.[decisionKey] as TriggerPlatformAction | undefined;
-              const hipagesActions = normalized.raw?.hipagesActions as { accept?: string; decline?: string; waitlist?: string } | undefined;
-              // When "accept" was normalized to waitlist (Join Waitlist), use waitlist path and action "waitlist".
-              const actionPath = triggerAction && (hipagesActions?.[triggerAction] ?? (triggerAction === "accept" ? hipagesActions?.waitlist : undefined));
-              const effectiveAction: TriggerPlatformAction = (triggerAction === "accept" && actionPath === hipagesActions?.waitlist) ? "waitlist" : triggerAction!;
-              if (triggerAction && typeof actionPath === "string" && actionPath.trim().startsWith("/leads/")) {
-                try {
-                  const actionResult = await triggerPlatformActionFast({
-                    sourceId: source.id,
-                    actionPath: actionPath.trim(),
-                    action: effectiveAction,
-                    leadId: processResult.activityId,
-                  });
-                  if (actionResult.ok) {
-                    logScan("trigger_platform_action_ok", {
-                      sourceId,
-                      activityId: processResult.activityId,
-                      decision: processResult.decision,
-                      action: triggerAction,
-                    });
-                  } else {
-                    logScan("trigger_platform_action_failed", {
-                      sourceId,
-                      activityId: processResult.activityId,
-                      decision: processResult.decision,
-                      action: triggerAction,
-                      error: actionResult.error,
-                      step: actionResult.step,
-                    });
-                  }
-                } catch (actionErr) {
-                  logScan("trigger_platform_action_error", {
-                    sourceId,
-                    activityId: processResult.activityId,
-                    error: actionErr instanceof Error ? actionErr.message : String(actionErr),
-                  });
-                }
+            const fullScanStart = Date.now();
+            let fullFailExtract = 0;
+            for (const idx of order) {
+              let rawFull: RawExtractedLead | null;
+              try {
+                rawFull = await withTimeout(
+                  hipagesAdapter.extractLeadCard(cards[idx]!, idx, "full"),
+                  EXTRACTION_TIMEOUT_MS,
+                  "hipages_full_extraction"
+                );
+              } catch {
+                fullFailExtract++;
+                continue;
               }
-            } catch (importErr) {
-              failedImport++;
-              logScan("import_lead_failed", {
+              if (!rawFull) {
+                fullFailExtract++;
+                continue;
+              }
+              const normalizedFull = normalizeToScannedLead(rawFull, source.id, source.name);
+              const dedupeKeyFull = computeDedupeKey(source.id, normalizedFull.externalId, {
+                title: normalizedFull.title,
+                suburb: normalizedFull.suburb,
+                postcode: normalizedFull.postcode,
+              });
+              currentDedupeKeys.add(dedupeKeyFull);
+              const row = await getScannedLeadByDedupeKey(source.id, dedupeKeyFull);
+              const aid = row?.activityId?.trim();
+              if (aid) {
+                await enrichExistingActivityFromFullExtract({
+                  sourceId,
+                  normalized: normalizedFull,
+                  dedupeKey: dedupeKeyFull,
+                });
+              } else {
+                await processOneExtractedRawLead({
+                  raw: rawFull,
+                  source,
+                  sourceId,
+                  effectiveRuleSet,
+                  currentDedupeKeys,
+                  tallies: tally,
+                });
+              }
+            }
+            logScan("full_scan_duration_ms", {
+              sourceId,
+              duration_ms: Date.now() - fullScanStart,
+              full_fail_extract: fullFailExtract,
+            });
+            failedExtraction = fastFailExtract + fullFailExtract;
+            logScan("fast_path_total_duration_ms", {
+              sourceId,
+              duration_ms: Date.now() - fastPathStart,
+            });
+          } else {
+            for (const raw of leads) {
+              await processOneExtractedRawLead({
+                raw,
+                source,
                 sourceId,
-                error: importErr instanceof Error ? importErr.message : String(importErr),
+                effectiveRuleSet,
+                currentDedupeKeys,
+                tallies: tally,
               });
             }
           }
 
-          // Remove leads that are no longer on the platform; keep leads that were accepted (they move to jobs on hipages).
           const allScanned = await listScannedLeadsBySourceId(source.id);
           for (const row of allScanned) {
             if (currentDedupeKeys.has(row.dedupeKey)) continue;
             if (row.activityId) {
               const activity = await getActivityByIdAdmin(row.activityId);
-              if (activity?.platformAccepted === true) continue; // keep accepted leads on the table
+              if (activity?.platformAccepted === true) continue;
               await deleteActivityById(row.activityId).catch(() => {});
             }
             await deleteScannedLeadRaw(row.id).catch(() => {});
           }
 
-          // Cycle summary: new leads written to Firestore this run; table already updated via onSnapshot.
           logScan("import_done", {
             sourceId,
-            new: imported,
-            duplicates: duplicate,
-            failed: failedImport,
-            extracted,
+            new: tally.imported,
+            duplicates: tally.duplicate,
+            failed: tally.failedImport,
+            extracted: tally.extracted,
           });
         } catch (extractErr) {
           await browser.close();
@@ -643,22 +434,26 @@ export async function runBackgroundScan(
         lastScanAt: now,
         lastScanStatus: "success",
         lastScanError: null,
-        lastScanExtracted: extracted,
-        lastScanDuplicate: duplicate,
+        lastScanExtracted: tally.extracted,
+        lastScanDuplicate: tally.duplicate,
         lastScanFailedExtraction: failedExtraction,
-        lastScanImported: imported,
-        lastScanFailedImport: failedImport,
+        lastScanImported: tally.imported,
+        lastScanFailedImport: tally.failedImport,
         lastScanDurationMs: durationMs,
         ...(lastScanDebug != null ? { lastScanDebug } : {}),
       });
-      logScan("scan_done", { sourceId, status: "success" });
+      logScan("scan_done", {
+        sourceId,
+        status: "success",
+        duration_ms: durationMs,
+      });
       return {
         ok: true,
-        extracted,
-        duplicate,
+        extracted: tally.extracted,
+        duplicate: tally.duplicate,
         failedExtraction,
-        imported,
-        failedImport,
+        imported: tally.imported,
+        failedImport: tally.failedImport,
       };
     }
 

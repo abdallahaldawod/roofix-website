@@ -9,9 +9,10 @@ import {
   toCustomerEnquiryUrl as toEnquiryUrl,
   toMainJobDetailUrl,
   type EnrichmentPage,
-} from "@/lib/leads/scanning/hipages-jobs-detail-enrichment";
+} from "@/lib/leads/scanning/hipages-business-job-page-scrape";
+import { installHipagesJobPageInpageScripts } from "@/lib/leads/scanning/hipages-job-page-inpage-install";
 
-const HIPAGES_JOBS_URL = "https://business.hipages.com.au/jobs?tab=list";
+const HIPAGES_BUSINESS_JOBS_LIST_URL = "https://business.hipages.com.au/jobs?tab=list";
 const HIPAGES_BASE = "https://business.hipages.com.au";
 
 function jobIdFromPath(pathname: string): string | null {
@@ -108,9 +109,10 @@ export async function POST(request: Request) {
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ storageState: absolutePath });
     const page = await context.newPage();
+    await installHipagesJobPageInpageScripts(page);
 
       if (!jobHref) {
-      await page.goto(HIPAGES_JOBS_URL, { waitUntil: "load", timeout: 25_000 });
+      await page.goto(HIPAGES_BUSINESS_JOBS_LIST_URL, { waitUntil: "load", timeout: 25_000 });
       await page.waitForSelector("main a[href*='/jobs/']", { timeout: 15_000 }).catch(() => {});
 
       const listHref = await page.evaluate((terms: string[]) => {
@@ -192,30 +194,6 @@ export async function POST(request: Request) {
       leadCostCredits: enq.leadCostCredits,
       serviceType: main.serviceType,
     };
-
-    // #region agent log
-    fetch("http://127.0.0.1:7842/ingest/107dfd3f-fb99-4625-a4ee-335b6070c3a1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b3ba84" },
-      body: JSON.stringify({
-        sessionId: "b3ba84",
-        runId: "fetch-job-route",
-        hypothesisId: "H5",
-        location: "fetch-hipages-job/route.ts:POST",
-        message: "fetch_hipages_extracted_fields",
-        data: {
-          mainKeys: Object.keys(main),
-          enqKeys: Object.keys(enq),
-          hasMainDesc: !!(main as { description?: string }).description,
-          hasEnqDesc: !!enq.description,
-          hasMergedDesc: !!(extracted as { description?: string }).description,
-          hasMainTitle: !!main.title,
-          hasEnqTitle: !!enq.title,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
 
     const debugData = {
       hipagesJobId,

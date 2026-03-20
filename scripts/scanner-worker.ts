@@ -3,8 +3,6 @@
  * Loads scannable external sources from Firestore, runs the existing background scan
  * for each in a loop with configurable delays. Thin orchestrator only; no scan logic here.
  *
- * Hipages jobs list sync runs in a separate process: npm run scanner-jobs-worker
- *
  * Usage: npm run scanner-worker
  *        npx tsx scripts/scanner-worker.ts
  *

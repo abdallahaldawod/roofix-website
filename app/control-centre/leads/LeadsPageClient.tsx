@@ -222,8 +222,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [hipagesCredit, setHipagesCredit] = useState<string | null>(null);
   const [hipagesCreditError, setHipagesCreditError] = useState<string | null>(null);
-  const [scanNewInProgress, setScanNewInProgress] = useState(false);
-  const [scanNewError, setScanNewError] = useState<string | null>(null);
   const [sources, setSources] = useState<LeadSource[]>([]);
   const [ruleSets, setRuleSets] = useState<LeadRuleSet[]>([]);
   const [autoApplyRulesEnabled, setAutoApplyRulesEnabled] = useState<boolean>(DEFAULT_SETTINGS.automationEnabled);
@@ -390,43 +388,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [getToken]);
-
-  /** Run background scan for Hipages source(s) to pull new leads into the table. */
-  const runScanNewLeads = useCallback(async () => {
-    setScanNewError(null);
-    setScanNewInProgress(true);
-    try {
-      const sources = await getSources();
-      const hipages = sources.filter(
-        (s) => s.storageStatePath && s.name.toLowerCase().includes("hipages")
-      );
-      if (hipages.length === 0) {
-        setScanNewError("No connected Hipages source. Connect a source in Lead Management.");
-        return;
-      }
-      const token = await getToken();
-      for (const source of hipages) {
-        const res = await fetch("/api/control-centre/leads/scan", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ sourceId: source.id }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          setScanNewError(data?.error ?? "Scan failed");
-          return;
-        }
-      }
-      setLastLeadsUpdateAt(Date.now());
-    } catch (e) {
-      setScanNewError(e instanceof Error ? e.message : "Scan failed");
-    } finally {
-      setScanNewInProgress(false);
-    }
   }, [getToken]);
 
   const toggleAutoApplyRules = useCallback(async () => {
@@ -892,12 +853,6 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           <div className="flex flex-wrap items-center gap-2">
             <PushNotifySubscribe />
             <Link
-              href={(base || "/control-centre") + "/leads/hipages-jobs"}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-            >
-              Hipages jobs
-            </Link>
-            <Link
               href={(base || "/control-centre") + "/leads/management"}
               className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover"
             >
@@ -1024,14 +979,9 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
               <span className="font-semibold tabular-nums text-neutral-400">—</span>
             )}
           </div>
-          {scanNewError && (
-            <span className="text-xs text-red-600" title={scanNewError}>
-              {scanNewError.length > 40 ? `${scanNewError.slice(0, 40)}…` : scanNewError}
-            </span>
-          )}
-          {scanNewInProgress && (
-            <span className="text-xs font-medium text-neutral-600">Scanning…</span>
-          )}
+          <span className="max-w-md text-xs text-neutral-600">
+            Scanning is handled locally by the worker (<code className="rounded bg-neutral-100 px-1">npm run scanner-worker</code>).
+          </span>
           {newLeadsBanner != null && newLeadsBanner > 0 && (
             <span className="text-xs font-medium text-emerald-600">
               {newLeadsBanner === 1 ? "1 new lead imported" : `${newLeadsBanner} new leads imported`}
@@ -1057,19 +1007,12 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
           {leads.length === 0 ? (
             <>
               <p className="text-center text-base font-medium text-neutral-900">No leads yet</p>
-              <p className="mt-2 max-w-sm text-center text-sm text-neutral-600">
-                New leads from Hipages appear here after you run a scan. Use <strong>Scan now</strong> above, or run a scan from Lead Management.
+              <p className="mt-2 max-w-md text-center text-sm text-neutral-600">
+                New leads from Hipages appear here after the local scanner imports them. Run{" "}
+                <code className="rounded bg-neutral-100 px-1 text-xs">npm run scanner-worker</code> on a machine with your
+                saved session, or connect a source in Lead Management first.
               </p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={runScanNewLeads}
-                  disabled={scanNewInProgress}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-neutral-900 hover:bg-accent-hover disabled:opacity-50"
-                >
-                  {scanNewInProgress ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Scan now
-                </button>
                 <Link
                   href={(base || "/control-centre") + "/leads/management"}
                   className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
@@ -1444,7 +1387,7 @@ export function LeadsPageClient(props: LeadsPageClientProps) {
                           ? undefined
                           : lead.sourceName?.toLowerCase().includes("hipages")
                             ? lead.platformAccepted
-                              ? "Cost not found when syncing. Open Hipages jobs to re-sync job details."
+                              ? "Cost not found. Use Fetch on the customer cell to refresh from the Hipages job page."
                               : "Cost not found. Use Fetch on the customer cell to refresh from the job page."
                             : undefined
                       }

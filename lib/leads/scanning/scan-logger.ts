@@ -20,12 +20,23 @@ function formatValue(v: unknown): string {
 /** When set, emit all scan stages; otherwise only key stages are logged (see ALWAYS_LOG_STAGES). */
 const SCAN_DEBUG = process.env.LEADS_SCAN_DEBUG === "1" || process.env.SCANNER_DEBUG === "1";
 
-/** Stages that are always logged so operators see new imports and cycle summary without enabling full debug. */
-const ALWAYS_LOG_STAGES = new Set(["scan_failed", "lead_imported", "import_done"]);
+/** Stages that are always logged so operators see new imports, cycle summary, Hipages two-pass timing, and total wall time without full debug. */
+const ALWAYS_LOG_STAGES = new Set([
+  "scan_failed",
+  "lead_imported",
+  "import_done",
+  "scan_done",
+  "fast_path_started",
+  "fast_path_evaluated",
+  "fast_path_action_triggered",
+  "fast_path_action_duration_ms",
+  "full_scan_duration_ms",
+  "fast_path_total_duration_ms",
+]);
 
 /**
  * Log a scan stage with key-value data. One line per call.
- * Always emits: scan_failed, lead_imported (each new lead), import_done (cycle summary).
+ * Always emits: scan_failed, lead_imported, import_done, scan_done (end-to-end duration_ms), and Hipages fast-path timing stages (see ALWAYS_LOG_STAGES).
  * When SCAN_DEBUG is set, emits all other stages too.
  */
 export function logScan(stage: string, data: Record<string, unknown>): void {

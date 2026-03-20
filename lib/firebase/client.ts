@@ -9,7 +9,7 @@ import {
   getAuth,
   initializeAuth,
   connectAuthEmulator,
-  browserSessionPersistence,
+  browserLocalPersistence,
   type Auth,
 } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
@@ -44,9 +44,9 @@ function getFirebaseApp() {
 
 export function getFirebaseAuth(): Auth {
   const app = getFirebaseApp();
-  // Use session persistence to avoid IndexedDB "Failed to open database" / "invalid digit found in string"
-  // in some environments (Safari, private browsing, or corrupted persistence).
-  const persistence = browserSessionPersistence;
+  // Local persistence keeps the user signed in across browser restarts until they log out.
+  // If you see IndexedDB errors in Safari/private mode, fall back to browserSessionPersistence.
+  const persistence = browserLocalPersistence;
   let auth: Auth;
   try {
     auth = initializeAuth(app, { persistence });
