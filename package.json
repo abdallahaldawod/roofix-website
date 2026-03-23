@@ -15,7 +15,8 @@
     "deploy:firestore-indexes": "npx firebase-tools deploy --only firestore:indexes",
     "lead-scan": "tsx scripts/run-lead-scan.ts",
     "bootstrap-hipages-auth": "tsx scripts/bootstrap-hipages-auth.ts",
-    "scanner-worker": "tsx scripts/scanner-worker.ts"
+    "scanner-worker": "tsx scripts/scanner-worker.ts",
+    "scanner-pm2-watch": "tsx scripts/scanner-pm2-watch.ts"
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.1",

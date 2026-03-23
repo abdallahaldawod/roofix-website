@@ -18,9 +18,9 @@ dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 dotenv.config();
 
 import { getSourcesAdmin } from "../lib/leads/sources-admin";
+import { getScannableSources } from "../lib/leads/scanner-eligibility";
 import { runBackgroundScan } from "../lib/leads/scanning/background-scan-runner";
 import { runActionQueueCycle } from "../lib/leads/scanning/action-queue-worker";
-import type { LeadSource } from "../lib/leads/types";
 
 let scanCount = 0;
 
@@ -34,19 +34,6 @@ const PREFIX = "[scanner-worker]";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Only Active sources are scanned. Paused sources are skipped so the UI Pause control stops the local scanner for that source.
- */
-function getScannableSources(sources: LeadSource[]): LeadSource[] {
-  return sources.filter(
-    (s) =>
-      !s.isSystem &&
-      (s.storageStatePath?.trim() ?? "") !== "" &&
-      (s.leadsUrl?.trim() ?? "") !== "" &&
-      s.status === "Active"
-  );
 }
 
 async function runActionQueueStep(): Promise<void> {
